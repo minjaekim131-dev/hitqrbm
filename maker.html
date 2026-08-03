@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HitQR 카드 메이커</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script src="sample-deck.js"></script>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <a class="brand" href="index.html">HitQR</a>
+    <a class="nav-link" href="index.html">게임하기</a>
+  </div>
+
+  <div class="panel">
+    <h2>카드 추가</h2>
+
+    <div class="field">
+      <label for="in-url">유튜브 링크</label>
+      <input type="url" id="in-url" placeholder="https://www.youtube.com/watch?v=...">
+    </div>
+
+    <div class="time-row">
+      <div class="field">
+        <label for="in-start">시작 시간</label>
+        <input type="text" id="in-start" placeholder="15:30" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="in-end">끝 시간</label>
+        <input type="text" id="in-end" placeholder="15:36" inputmode="numeric">
+      </div>
+    </div>
+    <div class="len-chips">
+      <span style="color:var(--text-dim);font-size:0.85rem;align-self:center">구간 길이:</span>
+      <button class="chip" data-len="5">5초</button>
+      <button class="chip" data-len="7">7초</button>
+      <button class="chip" data-len="10">10초</button>
+    </div>
+
+    <div class="field" style="margin-top:14px">
+      <label for="in-title">작품 제목 (링크를 넣으면 영상 제목이 자동으로 채워져요. 영화·드라마 제목으로 다듬어 주세요)</label>
+      <input type="text" id="in-title" placeholder="예: 기생충">
+    </div>
+
+    <div class="time-row">
+      <div class="field">
+        <label for="in-year">연도</label>
+        <input type="text" id="in-year" placeholder="2019" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="in-speaker">발화자 — 배역 (배우)</label>
+        <input type="text" id="in-speaker" placeholder="기택 (송강호)">
+      </div>
+    </div>
+
+    <p class="error-msg" id="form-error"></p>
+
+    <div class="btn-row">
+      <button class="btn btn-ghost" id="btn-preview">구간 미리듣기</button>
+      <button class="btn btn-primary" id="btn-add">카드 추가</button>
+    </div>
+
+    <div class="preview-shell" id="preview-shell" hidden>
+      <div class="player-shell" id="preview-box"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>내 카드 덱</h2>
+    <div class="deck-toolbar">
+      <span class="deck-count" id="deck-count">0장</span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-small" id="btn-print">인쇄</button>
+      <button class="btn btn-ghost btn-small" id="btn-sample">샘플 덱</button>
+      <button class="btn btn-ghost btn-small" id="btn-export">내보내기</button>
+      <button class="btn btn-ghost btn-small" id="btn-import">가져오기</button>
+      <button class="btn btn-ghost btn-small" id="btn-clear">전체 삭제</button>
+      <input type="file" id="import-file" accept=".json,application/json" hidden>
+    </div>
+    <div class="deck-grid" id="deck-grid"></div>
+    <p class="empty-note" id="empty-note">아직 카드가 없어요. 위에서 첫 카드를 만들어 보세요!</p>
+  </div>
+
+</div>
+
+<div id="print-area"></div>
+<div id="title-probe" style="position:fixed;left:-9999px;top:0;width:320px;height:180px" aria-hidden="true"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var STORE_KEY = 'hitqr.deck';
+  var deck = [];
+
+  try { deck = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch (e) { deck = []; }
+
+  // ---------- helpers ----------
+  function parseVideoId(text) {
+    var url;
+    try { url = new URL(text.trim()); } catch (e) { return null; }
+    var host = url.hostname.replace(/^(www\.|m\.)/, '');
+    var id = null;
+    if (host === 'youtu.be') {
+      id = url.pathname.slice(1).split('/')[0];
+    } else if (host === 'youtube.com' || host === 'music.youtube.com') {
+      if (url.pathname === '/watch') id = url.searchParams.get('v');
+      else if (url.pathname.indexOf('/embed/') === 0) id = url.pathname.split('/')[2];
+      else if (url.pathname.indexOf('/shorts/') === 0) id = url.pathname.split('/')[2];
+    }
+    if (!id || !/^[\w-]{6,20}$/.test(id)) return null;
+    return id;
+  }
+
+  // "930" | "15:30" | "1:15:30" -> seconds
+  function parseTime(text) {
+    var t = (text || '').trim();
+    if (!t) return null;
+    if (!/^\d+(:\d{1,2}){0,2}$/.test(t)) return null;
+    var parts = t.split(':').map(Number);
+    var sec = 0;
+    for (var i = 0; i < parts.length; i++) sec = sec * 60 + parts[i];
+    return sec;
+  }
+
+  function formatTime(sec) {
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    var mm = String(m), ss = String(s).padStart(2, '0');
+    if (h > 0) return h + ':' + mm.padStart(2, '0') + ':' + ss;
+    return mm + ':' + ss;
+  }
+
+  function qrText(c) {
+    return 'https://youtu.be/' + c.videoId + '?t=' + c.start + '&end=' + c.end;
+  }
+
+  function makeQrDataUrl(text, cellSize) {
+    var qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    return qr.createDataURL(cellSize, cellSize * 4);
+  }
+
+  function save() { localStorage.setItem(STORE_KEY, JSON.stringify(deck)); }
+
+  function readForm() {
+    var id = parseVideoId($('in-url').value);
+    if (!id) return { error: '유튜브 링크를 알아볼 수 없어요.' };
+    var start = parseTime($('in-start').value);
+    if (start === null) return { error: '시작 시간을 15:30 같은 형식으로 적어 주세요.' };
+    var end = parseTime($('in-end').value);
+    if (end === null) end = start + 7;
+    if (end <= start) return { error: '끝 시간은 시작 시간보다 뒤여야 해요.' };
+    if (end - start > 30) return { error: '구간이 30초를 넘어요. 5~10초 정도가 알맞아요.' };
+    return {
+      videoId: id, start: start, end: end,
+      title: $('in-title').value.trim(),
+      year: $('in-year').value.trim(),
+      speaker: $('in-speaker').value.trim()
+    };
+  }
+
+  function answerLine(c) {
+    var parts = [];
+    if (c.title) parts.push(c.title + (c.year ? ' (' + c.year + ')' : ''));
+    else if (c.year) parts.push(c.year);
+    if (c.speaker) parts.push(c.speaker);
+    if (!parts.length && c.memo) parts.push(c.memo);
+    return parts.join(' · ');
+  }
+
+  // ---------- title auto-fill via YouTube player (works inside the company network) ----------
+  var titlePlayer = null;
+  var wantTitleFor = null;
+  var pendingTitleId = null;
+
+  window.onYouTubeIframeAPIReady = function () {
+    if (pendingTitleId) { var v = pendingTitleId; pendingTitleId = null; fetchTitle(v); }
+  };
+
+  function grabTitle() {
+    try {
+      var d = titlePlayer.getVideoData();
+      if (d && d.title && d.video_id === wantTitleFor) {
+        var f = $('in-title');
+        if (!f.value) f.value = d.title;
+      }
+    } catch (e) { /* title stays manual */ }
+  }
+
+  function fetchTitle(videoId) {
+    wantTitleFor = videoId;
+    if (!(window.YT && window.YT.Player)) { pendingTitleId = videoId; return; }
+    if (titlePlayer) {
+      titlePlayer.cueVideoById(videoId);
+    } else {
+      titlePlayer = new YT.Player('title-probe', {
+        videoId: videoId,
+        playerVars: { mute: 1 },
+        events: {
+          onReady: grabTitle,
+          onStateChange: function (e) { if (e.data === YT.PlayerState.CUED) grabTitle(); }
+        }
+      });
+    }
+  }
+
+  // ---------- render ----------
+  function render() {
+    var grid = $('deck-grid');
+    grid.innerHTML = '';
+    $('deck-count').textContent = deck.length + '장';
+    $('empty-note').hidden = deck.length > 0;
+
+    deck.forEach(function (c, i) {
+      var el = document.createElement('div');
+      el.className = 'deck-card';
+
+      var img = document.createElement('img');
+      img.alt = '카드 ' + (i + 1) + ' QR';
+      img.src = makeQrDataUrl(qrText(c), 8);
+      el.appendChild(img);
+
+      var num = document.createElement('div');
+      num.className = 'num';
+      num.textContent = '#' + (i + 1);
+      el.appendChild(num);
+
+      var meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = answerLine(c) || '(정답 정보 없음)';
+      meta.title = meta.textContent;
+      el.appendChild(meta);
+
+      var timeMeta = document.createElement('div');
+      timeMeta.className = 'meta';
+      timeMeta.textContent = formatTime(c.start) + ' ~ ' + formatTime(c.end);
+      el.appendChild(timeMeta);
+
+      var del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = '삭제';
+      del.addEventListener('click', function () {
+        deck.splice(i, 1);
+        save();
+        render();
+      });
+      el.appendChild(del);
+
+      grid.appendChild(el);
+    });
+  }
+
+  // ---------- events ----------
+  $('in-url').addEventListener('change', function () {
+    // prefill start time from a t= parameter in the pasted link
+    try {
+      var url = new URL(this.value.trim());
+      var t = url.searchParams.get('t');
+      if (t && !$('in-start').value) {
+        var sec = parseInt(String(t).replace(/s$/, ''), 10);
+        if (sec) $('in-start').value = formatTime(sec);
+      }
+    } catch (e) { /* not a URL yet */ }
+    var id = parseVideoId(this.value);
+    if (id) fetchTitle(id);
+  });
+
+  document.querySelectorAll('.chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var start = parseTime($('in-start').value);
+      if (start === null) { $('form-error').textContent = '먼저 시작 시간을 적어 주세요.'; return; }
+      $('form-error').textContent = '';
+      $('in-end').value = formatTime(start + parseInt(this.dataset.len, 10));
+    });
+  });
+
+  $('btn-preview').addEventListener('click', function () {
+    var c = readForm();
+    if (c.error) { $('form-error').textContent = c.error; return; }
+    $('form-error').textContent = '';
+    var box = $('preview-box');
+    box.innerHTML = '';
+    var iframe = document.createElement('iframe');
+    iframe.src = 'https://www.youtube.com/embed/' + c.videoId +
+      '?start=' + c.start + '&end=' + c.end + '&autoplay=1&playsinline=1&rel=0';
+    iframe.allow = 'autoplay; encrypted-media';
+    iframe.allowFullscreen = true;
+    box.appendChild(iframe);
+    $('preview-shell').hidden = false;
+  });
+
+  $('btn-add').addEventListener('click', function () {
+    var c = readForm();
+    if (c.error) { $('form-error').textContent = c.error; return; }
+    $('form-error').textContent = '';
+    deck.push(c);
+    save();
+    render();
+    $('in-start').value = '';
+    $('in-end').value = '';
+    $('in-title').value = '';
+    $('in-year').value = '';
+    $('in-speaker').value = '';
+    $('preview-shell').hidden = true;
+    $('preview-box').innerHTML = '';
+  });
+
+  function frontCell(c, n) {
+    var pc = document.createElement('div');
+    pc.className = 'pcard';
+    // vector QR: prints crisply at any size and avoids raster-image quirks
+    // in some print-preview engines
+    var qrBox = document.createElement('div');
+    qrBox.className = 'pqr';
+    var qr = qrcode(0, 'M');
+    qr.addData(qrText(c));
+    qr.make();
+    qrBox.innerHTML = qr.createSvgTag(4, 16);
+    var num = document.createElement('div');
+    num.className = 'pnum';
+    num.textContent = '#' + n;
+    pc.appendChild(qrBox);
+    pc.appendChild(num);
+    return pc;
+  }
+
+  function backCell(c, n) {
+    var pc = document.createElement('div');
+    pc.className = 'pback';
+    var title = document.createElement('div');
+    title.className = 'ptitle';
+    title.textContent = c.title || (c.memo || '');
+    var year = document.createElement('div');
+    year.className = 'pyear';
+    year.textContent = c.year || '';
+    var speaker = document.createElement('div');
+    speaker.className = 'pspeaker';
+    speaker.textContent = c.speaker || '';
+    var num = document.createElement('div');
+    num.className = 'pn';
+    num.textContent = '#' + n;
+    pc.appendChild(title);
+    pc.appendChild(year);
+    pc.appendChild(speaker);
+    pc.appendChild(num);
+    return pc;
+  }
+
+  function blankCell() {
+    var d = document.createElement('div');
+    d.className = 'pblank';
+    return d;
+  }
+
+  // 12 cards per A4 sheet (3 cols x 4 rows, 60mm fixed). For each group of 12:
+  // one front sheet (QR only) followed by one back sheet (answer info). The
+  // back sheet reverses the cells of every row so long-edge duplex printing
+  // aligns front/back.
+  var PAGE_COLS = 3;
+  var PAGE_SIZE = 12;
+  var BACK_ORDER = (function () {
+    var order = [];
+    for (var r = 0; r < PAGE_SIZE / PAGE_COLS; r++) {
+      for (var c = PAGE_COLS - 1; c >= 0; c--) order.push(r * PAGE_COLS + c);
+    }
+    return order;
+  })();
+
+  $('btn-print').addEventListener('click', function () {
+    if (deck.length === 0) return;
+    var area = $('print-area');
+    area.innerHTML = '';
+    for (var g = 0; g < deck.length; g += PAGE_SIZE) {
+      var group = deck.slice(g, g + PAGE_SIZE);
+
+      var front = document.createElement('div');
+      front.className = 'psheet';
+      for (var i = 0; i < PAGE_SIZE; i++) {
+        front.appendChild(group[i] ? frontCell(group[i], g + i + 1) : blankCell());
+      }
+      area.appendChild(front);
+
+      var back = document.createElement('div');
+      back.className = 'psheet';
+      BACK_ORDER.forEach(function (idx) {
+        back.appendChild(group[idx] ? backCell(group[idx], g + idx + 1) : blankCell());
+      });
+      area.appendChild(back);
+    }
+    window.print();
+  });
+
+  // The sample deck ships as a script file (sample-deck.js) instead of being
+  // fetched, so the button also works when maker.html is opened straight from
+  // the local disk (file://), where fetch of local files is blocked.
+  $('btn-sample').addEventListener('click', function () {
+    var sample = window.HITQR_SAMPLE;
+    if (!Array.isArray(sample)) {
+      $('form-error').textContent = '샘플 덱을 불러오지 못했어요. (sample-deck.js 파일이 같은 폴더에 있는지 확인해 주세요)';
+      return;
+    }
+    deck = deck.concat(sample);
+    save();
+    render();
+  });
+
+  $('btn-export').addEventListener('click', function () {
+    var blob = new Blob([JSON.stringify(deck, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'hitqr-deck.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  $('btn-import').addEventListener('click', function () { $('import-file').click(); });
+
+  $('import-file').addEventListener('change', function () {
+    var file = this.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var data = JSON.parse(reader.result);
+        if (!Array.isArray(data)) throw new Error('not array');
+        var cleaned = data.filter(function (c) {
+          return c && typeof c.videoId === 'string' && typeof c.start === 'number' && typeof c.end === 'number';
+        });
+        deck = deck.concat(cleaned);
+        save();
+        render();
+      } catch (e) {
+        $('form-error').textContent = '덱 파일을 읽을 수 없어요.';
+      }
+    };
+    reader.readAsText(file);
+    this.value = '';
+  });
+
+  $('btn-clear').addEventListener('click', function () {
+    if (deck.length === 0) return;
+    if (!confirm('카드 ' + deck.length + '장을 모두 삭제할까요?')) return;
+    deck = [];
+    save();
+    render();
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
