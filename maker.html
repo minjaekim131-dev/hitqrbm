@@ -72,6 +72,19 @@
   </div>
 
   <div class="panel">
+    <h2>시트로 한꺼번에 추가</h2>
+    <p class="hint">
+      엑셀이나 구글시트에 한 행에 카드 하나씩, 아래 순서대로 열을 채운 뒤 행 전체를 복사해서 붙여넣으세요.<br>
+      <b>링크 · 시작 · 끝 · 제목 · 연도 · 발화자</b><br>
+      끝을 비우면 시작+7초로 자동 설정됩니다. 시작·끝은 15:30 형식 또는 초 단위 숫자(930)로 적고,
+      시트에서 15:30이 시간 서식으로 바뀌면 셀 서식을 "텍스트"로 두세요.
+    </p>
+    <textarea id="bulk-input" rows="6" placeholder="시트에서 행들을 복사해 여기에 붙여넣기"></textarea>
+    <p class="error-msg" id="bulk-msg"></p>
+    <button class="btn btn-primary" id="btn-bulk" style="margin-top:8px">시트 내용 추가</button>
+  </div>
+
+  <div class="panel">
     <h2>내 카드 덱</h2>
     <div class="deck-toolbar">
       <span class="deck-count" id="deck-count">0장</span>
@@ -403,6 +416,42 @@
   // The sample deck ships as a script file (sample-deck.js) instead of being
   // fetched, so the button also works when maker.html is opened straight from
   // the local disk (file://), where fetch of local files is blocked.
+  // Bulk add from spreadsheet rows pasted as tab-separated text.
+  // Column order: link, start, end, title, year, speaker.
+  $('btn-bulk').addEventListener('click', function () {
+    var text = $('bulk-input').value;
+    if (!text.trim()) { $('bulk-msg').textContent = '먼저 시트 내용을 붙여넣어 주세요.'; return; }
+    var lines = text.split(/\r?\n/);
+    var added = 0;
+    var errors = [];
+    lines.forEach(function (line, i) {
+      if (!line.trim()) return;
+      var cols = line.split('\t');
+      if (cols.length === 1) cols = line.split(/ {2,}/);
+      var url = (cols[0] || '').trim();
+      if (url.indexOf('http') !== 0 && i === 0) return; // header row
+      var id = parseVideoId(url);
+      if (!id) { errors.push((i + 1) + '행: 링크 인식 불가'); return; }
+      var start = parseTime((cols[1] || '').trim());
+      if (start === null) { errors.push((i + 1) + '행: 시작 시간 없음'); return; }
+      var end = parseTime((cols[2] || '').trim());
+      if (end === null) end = start + 7;
+      if (end <= start) { errors.push((i + 1) + '행: 끝이 시작보다 앞'); return; }
+      deck.push({
+        videoId: id, start: start, end: end,
+        title: (cols[3] || '').trim(),
+        year: (cols[4] || '').trim(),
+        speaker: (cols[5] || '').trim()
+      });
+      added++;
+    });
+    if (added) { save(); render(); }
+    var msg = added + '장 추가됨';
+    if (errors.length) msg += ' / 실패 ' + errors.length + '건 — ' + errors.join(', ');
+    $('bulk-msg').textContent = msg;
+    if (added && !errors.length) $('bulk-input').value = '';
+  });
+
   $('btn-sample').addEventListener('click', function () {
     var sample = window.HITQR_SAMPLE;
     if (!Array.isArray(sample)) {
