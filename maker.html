@@ -74,14 +74,28 @@
   <div class="panel">
     <h2>시트로 한꺼번에 추가</h2>
     <p class="hint">
-      엑셀이나 구글시트에 한 행에 카드 하나씩, 아래 순서대로 열을 채운 뒤 행 전체를 복사해서 붙여넣으세요.<br>
+      구글시트에 한 행에 카드 하나씩, 아래 순서대로 열을 채우세요. 첫 행은 제목 행이어도 됩니다.<br>
       <b>링크 · 시작 · 끝 · 제목 · 연도 · 발화자</b><br>
-      끝을 비우면 시작+7초로 자동 설정됩니다. 시작·끝은 15:30 형식 또는 초 단위 숫자(930)로 적고,
-      시트에서 15:30이 시간 서식으로 바뀌면 셀 서식을 "텍스트"로 두세요.
+      끝을 비우면 시작+7초로 자동 설정됩니다. 시작·끝 열은 셀 서식을 "일반 텍스트"로 두고
+      15:30 형식 또는 초 단위 숫자(930)로 적으세요.
+      시트는 공유 설정에서 <b>"링크가 있는 모든 사용자 - 뷰어"</b>로 열어 두어야 앱이 읽을 수 있습니다.
     </p>
-    <textarea id="bulk-input" rows="6" placeholder="시트에서 행들을 복사해 여기에 붙여넣기"></textarea>
+
+    <div class="field">
+      <label for="sheet-url">구글시트 링크</label>
+      <div class="manual-box">
+        <input type="url" id="sheet-url" placeholder="https://docs.google.com/spreadsheets/d/.../edit#gid=0">
+        <button class="btn btn-ghost btn-small" id="btn-sheet">불러오기</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="bulk-input">또는 시트에서 행을 복사해 직접 붙여넣기</label>
+      <textarea id="bulk-input" rows="4" placeholder="시트에서 행들을 복사해 여기에 붙여넣기"></textarea>
+    </div>
+
     <p class="error-msg" id="bulk-msg"></p>
-    <button class="btn btn-primary" id="btn-bulk" style="margin-top:8px">시트 내용 추가</button>
+    <button class="btn btn-primary" id="btn-bulk" style="margin-top:8px">붙여넣은 내용 추가</button>
   </div>
 
   <div class="panel">
@@ -416,19 +430,15 @@
   // The sample deck ships as a script file (sample-deck.js) instead of being
   // fetched, so the button also works when maker.html is opened straight from
   // the local disk (file://), where fetch of local files is blocked.
-  // Bulk add from spreadsheet rows pasted as tab-separated text.
-  // Column order: link, start, end, title, year, speaker.
-  $('btn-bulk').addEventListener('click', function () {
-    var text = $('bulk-input').value;
-    if (!text.trim()) { $('bulk-msg').textContent = '먼저 시트 내용을 붙여넣어 주세요.'; return; }
-    var lines = text.split(/\r?\n/);
+  // Shared row importer. rows = array of column arrays in the order:
+  // link, start, end, title, year, speaker. A first row whose link column
+  // is not a URL is treated as a header and skipped.
+  function importRows(rows) {
     var added = 0;
     var errors = [];
-    lines.forEach(function (line, i) {
-      if (!line.trim()) return;
-      var cols = line.split('\t');
-      if (cols.length === 1) cols = line.split(/ {2,}/);
+    rows.forEach(function (cols, i) {
       var url = (cols[0] || '').trim();
+      if (!cols.join('').trim()) return; // empty row
       if (url.indexOf('http') !== 0 && i === 0) return; // header row
       var id = parseVideoId(url);
       if (!id) { errors.push((i + 1) + '행: 링크 인식 불가'); return; }
@@ -449,7 +459,58 @@
     var msg = added + '장 추가됨';
     if (errors.length) msg += ' / 실패 ' + errors.length + '건 — ' + errors.join(', ');
     $('bulk-msg').textContent = msg;
-    if (added && !errors.length) $('bulk-input').value = '';
+    return added > 0 && errors.length === 0;
+  }
+
+  // CSV parser that handles quoted fields (commas and line breaks inside quotes)
+  function parseCsv(text) {
+    var rows = [], row = [], cur = '', inQ = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { cur += '"'; i++; }
+          else inQ = false;
+        } else cur += ch;
+      } else if (ch === '"') inQ = true;
+      else if (ch === ',') { row.push(cur); cur = ''; }
+      else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+      else if (ch !== '\r') cur += ch;
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+
+  // Import straight from a Google Sheet shared as "anyone with the link".
+  // The gviz CSV endpoint serves public sheets with CORS enabled, so this
+  // works from a static page without any API key.
+  $('btn-sheet').addEventListener('click', function () {
+    var input = $('sheet-url').value.trim();
+    var m = /docs\.google\.com\/spreadsheets\/d\/([\w-]+)/.exec(input);
+    if (!m) { $('bulk-msg').textContent = '구글시트 링크를 알아볼 수 없어요.'; return; }
+    var gidMatch = /[#&?]gid=(\d+)/.exec(input);
+    var gid = gidMatch ? gidMatch[1] : '0';
+    $('bulk-msg').textContent = '시트를 읽는 중...';
+    fetch('https://docs.google.com/spreadsheets/d/' + m[1] + '/gviz/tq?tqx=out:csv&gid=' + gid)
+      .then(function (res) { if (!res.ok) throw new Error(res.status); return res.text(); })
+      .then(function (csv) {
+        if (importRows(parseCsv(csv))) $('sheet-url').value = '';
+      })
+      .catch(function () {
+        $('bulk-msg').textContent = '시트를 읽지 못했어요. 공유 설정이 "링크가 있는 모든 사용자 - 뷰어"인지 확인해 주세요.';
+      });
+  });
+
+  // Fallback: rows pasted from a spreadsheet arrive tab-separated
+  $('btn-bulk').addEventListener('click', function () {
+    var text = $('bulk-input').value;
+    if (!text.trim()) { $('bulk-msg').textContent = '먼저 시트 내용을 붙여넣어 주세요.'; return; }
+    var rows = text.split(/\r?\n/).filter(function (l) { return l.trim(); }).map(function (line) {
+      var cols = line.split('\t');
+      if (cols.length === 1) cols = line.split(/ {2,}/);
+      return cols;
+    });
+    if (importRows(rows)) $('bulk-input').value = '';
   });
 
   $('btn-sample').addEventListener('click', function () {
