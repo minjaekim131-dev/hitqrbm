@@ -441,7 +441,19 @@ textarea {
 
 .deck-card img { width: 100%; border-radius: 8px; background: #fff; }
 
-.deck-card .num { font-weight: 800; font-size: 0.95rem; margin-top: 8px; }
+.deck-card .card-type {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 46, 136, 0.12);
+  border: 1px solid rgba(255, 46, 136, 0.4);
+  color: #ffb3d1;
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.deck-card .num { font-weight: 800; font-size: 0.95rem; margin-top: 6px; }
 
 .deck-card .meta {
   color: var(--text-dim);

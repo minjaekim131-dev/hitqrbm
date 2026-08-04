@@ -89,7 +89,7 @@
 
     <div class="btn-row" id="playing-buttons" hidden>
       <button class="btn btn-ghost" id="btn-replay">한 번 더 듣기</button>
-      <button class="btn btn-ghost" id="btn-giveup">바로 정답 보기</button>
+      <button class="btn btn-primary" id="btn-giveup">정답 확인</button>
     </div>
 
     <div class="btn-row" id="answer-buttons" hidden>
@@ -303,8 +303,10 @@
       if (data && data.title) title = data.title;
     } catch (e) { /* keep default title */ }
     $('answer-title').textContent = title;
+    // replay the scene (video visible this time) from the clip start;
+    // no end limit so the answer scene can keep playing
     if (player && playerReady) {
-      player.cueVideoById({ videoId: card.videoId, startSeconds: card.start });
+      player.loadVideoById({ videoId: card.videoId, startSeconds: card.start });
     }
   }
 

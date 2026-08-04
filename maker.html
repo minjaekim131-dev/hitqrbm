@@ -221,7 +221,6 @@
 
   function answerLine(c) {
     var parts = [];
-    if (c.type) parts.push(c.type);
     if (c.title) parts.push(c.title + (c.year ? ' (' + c.year + ')' : ''));
     else if (c.year) parts.push(c.year);
     if (c.speaker) parts.push(c.speaker);
@@ -280,6 +279,13 @@
       img.alt = '카드 ' + (i + 1) + ' QR';
       img.src = makeQrDataUrl(qrText(c), 8);
       el.appendChild(img);
+
+      if (c.type) {
+        var typeEl = document.createElement('div');
+        typeEl.className = 'card-type';
+        typeEl.textContent = c.type;
+        el.appendChild(typeEl);
+      }
 
       var num = document.createElement('div');
       num.className = 'num';
