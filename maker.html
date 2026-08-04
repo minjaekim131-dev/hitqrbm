@@ -93,6 +93,16 @@
       시트는 공유 설정에서 <b>"링크가 있는 모든 사용자 - 뷰어"</b>로 열어 두어야 앱이 읽을 수 있습니다.
     </p>
 
+    <div class="fmt-scroll">
+      <table class="fmt-table">
+        <tr><th>링크</th><th>시작</th><th>끝</th><th>제목</th><th>연도</th><th>발화자</th><th>타입</th></tr>
+        <tr><td>https://www.youtube.com/watch?v=...</td><td>930</td><td>937</td><td>기생충</td><td>2019</td><td>기택 (송강호)</td><td>한국영화</td></tr>
+        <tr><td>https://youtu.be/...</td><td>30</td><td></td><td>도깨비</td><td>2016</td><td>김신 (공유)</td><td>한국드라마</td></tr>
+      </table>
+    </div>
+
+    <button class="btn btn-ghost" id="btn-template" style="margin-bottom:14px">시트 양식 만들기 (양식 복사 + 새 시트 열기)</button>
+
     <div class="field">
       <label for="sheet-url">구글시트 링크</label>
       <div class="manual-box">
@@ -461,6 +471,7 @@
       var url = (cols[0] || '').trim();
       if (!cols.join('').trim()) return; // empty row
       if (url.indexOf('http') !== 0 && i === 0) return; // header row
+      if (url.indexOf('http') !== 0 && !cols.slice(1).join('').trim()) return; // note-only row
       var id = parseVideoId(url);
       if (!id) { errors.push((i + 1) + '행: 링크 인식 불가'); return; }
       var start = parseTime((cols[1] || '').trim());
@@ -502,6 +513,35 @@
     if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
     return rows;
   }
+
+  // One-click sheet template: copy header + example rows to the clipboard and
+  // open a fresh Google Sheet (sheets.new) to paste into. Times are given in
+  // plain seconds so spreadsheet auto-formatting cannot mangle them.
+  var TEMPLATE_ROWS = [
+    ['링크', '시작', '끝', '제목', '연도', '발화자', '타입'],
+    ['https://www.youtube.com/watch?v=Q38h5XD4RKE', '20', '28', '기생충', '2019', '기택 (송강호)', '한국영화'],
+    ['https://www.youtube.com/watch?v=d4GaQ30slGI', '30', '38', '도깨비', '2016', '김신 (공유)', '한국드라마'],
+    ['(예시 행은 지우고 채우세요)', '', '', '', '', '', '']
+  ];
+
+  $('btn-template').addEventListener('click', function () {
+    var text = TEMPLATE_ROWS.map(function (r) { return r.join('\t'); }).join('\n');
+    var openSheet = function () { window.open('https://sheets.new', '_blank'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        $('bulk-msg').textContent = '양식이 복사되었어요! 새 시트가 열리면 A1 셀을 클릭하고 붙여넣기(Ctrl+V) 하세요.';
+        openSheet();
+      }).catch(function () {
+        $('bulk-input').value = text;
+        $('bulk-msg').textContent = '자동 복사가 막혀 있어 아래 상자에 양식을 넣어 두었어요. 전체 선택해 복사한 뒤 새 시트 A1에 붙여넣으세요.';
+        openSheet();
+      });
+    } else {
+      $('bulk-input').value = text;
+      $('bulk-msg').textContent = '자동 복사가 막혀 있어 아래 상자에 양식을 넣어 두었어요. 전체 선택해 복사한 뒤 새 시트 A1에 붙여넣으세요.';
+      openSheet();
+    }
+  });
 
   // Import straight from a Google Sheet shared as "anyone with the link".
   // The gviz CSV endpoint serves public sheets with CORS enabled, so this
