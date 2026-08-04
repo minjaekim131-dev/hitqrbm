@@ -441,22 +441,27 @@ textarea {
 
 .deck-card img { width: 100%; border-radius: 8px; background: #fff; }
 
-.deck-card .card-type {
+.deck-card .card-type-sel {
   display: inline-block;
   margin-top: 8px;
-  padding: 3px 10px;
+  padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid currentColor;
+  background: transparent;
   color: var(--text-dim);
+  font-family: inherit;
   font-weight: 700;
   font-size: 0.78rem;
+  cursor: pointer;
 }
 
+.deck-card .card-type-sel option { background: var(--bg-input); color: var(--text); }
+
 /* screen variants (soft colors for the dark background) */
-.card-type.t-kmovie { color: #90aec9; }
-.card-type.t-fmovie { color: #9dbb9f; }
-.card-type.t-kdrama { color: #c99a9a; }
-.card-type.t-fdrama { color: #b3a1c7; }
+.deck-card .t-kmovie { color: #90aec9; }
+.deck-card .t-fmovie { color: #9dbb9f; }
+.deck-card .t-kdrama { color: #c99a9a; }
+.deck-card .t-fdrama { color: #b3a1c7; }
 
 .deck-card .num { font-weight: 800; font-size: 0.95rem; margin-top: 6px; }
 
@@ -521,7 +526,7 @@ textarea {
   .pcard .pqr { width: 50mm; height: 50mm; }
   .pcard .pqr svg { width: 100%; height: 100%; display: block; }
   .pcard .ptype {
-    font-size: 13pt;
+    font-size: 11pt;
     font-weight: 700;
     color: #111;
     margin-top: 2mm;

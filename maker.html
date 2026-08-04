@@ -288,12 +288,22 @@
       img.src = makeQrDataUrl(qrText(c), 8);
       el.appendChild(img);
 
-      if (c.type) {
-        var typeEl = document.createElement('div');
-        typeEl.className = 'card-type' + (TYPE_CLASS[c.type] ? ' ' + TYPE_CLASS[c.type] : '');
-        typeEl.textContent = c.type;
-        el.appendChild(typeEl);
-      }
+      // type selector: also fixes older cards saved before the type field existed
+      var typeSel = document.createElement('select');
+      typeSel.className = 'card-type-sel' + (TYPE_CLASS[c.type] ? ' ' + TYPE_CLASS[c.type] : '');
+      ['', '한국영화', '해외영화', '한국드라마', '해외드라마'].forEach(function (v) {
+        var o = document.createElement('option');
+        o.value = v;
+        o.textContent = v || '타입 없음';
+        if (v === (c.type || '')) o.selected = true;
+        typeSel.appendChild(o);
+      });
+      typeSel.addEventListener('change', function () {
+        deck[i].type = this.value;
+        save();
+        render();
+      });
+      el.appendChild(typeSel);
 
       var num = document.createElement('div');
       num.className = 'num';
