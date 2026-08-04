@@ -192,6 +192,14 @@
     return 'https://youtu.be/' + c.videoId + '?t=' + c.start + '&end=' + c.end;
   }
 
+  // one distinct color per type, shared by the screen badges and the print pills
+  var TYPE_CLASS = {
+    '한국영화': 't-kmovie',
+    '해외영화': 't-fmovie',
+    '한국드라마': 't-kdrama',
+    '해외드라마': 't-fdrama'
+  };
+
   function makeQrDataUrl(text, cellSize) {
     var qr = qrcode(0, 'M');
     qr.addData(text);
@@ -282,7 +290,7 @@
 
       if (c.type) {
         var typeEl = document.createElement('div');
-        typeEl.className = 'card-type';
+        typeEl.className = 'card-type' + (TYPE_CLASS[c.type] ? ' ' + TYPE_CLASS[c.type] : '');
         typeEl.textContent = c.type;
         el.appendChild(typeEl);
       }
@@ -387,7 +395,7 @@
     pc.appendChild(qrBox);
     if (c.type) {
       var type = document.createElement('div');
-      type.className = 'ptype';
+      type.className = 'ptype' + (TYPE_CLASS[c.type] ? ' ' + TYPE_CLASS[c.type] : '');
       type.textContent = c.type;
       pc.appendChild(type);
     }

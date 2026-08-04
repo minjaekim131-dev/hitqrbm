@@ -446,12 +446,17 @@ textarea {
   margin-top: 8px;
   padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(255, 46, 136, 0.12);
-  border: 1px solid rgba(255, 46, 136, 0.4);
-  color: #ffb3d1;
+  border: 1px solid currentColor;
+  color: var(--text-dim);
   font-weight: 700;
   font-size: 0.78rem;
 }
+
+/* screen variants (soft colors for the dark background) */
+.card-type.t-kmovie { color: #90aec9; }
+.card-type.t-fmovie { color: #9dbb9f; }
+.card-type.t-kdrama { color: #c99a9a; }
+.card-type.t-fdrama { color: #b3a1c7; }
 
 .deck-card .num { font-weight: 800; font-size: 0.95rem; margin-top: 6px; }
 
@@ -515,7 +520,23 @@ textarea {
   .pcard { position: relative; }
   .pcard .pqr { width: 50mm; height: 50mm; }
   .pcard .pqr svg { width: 100%; height: 100%; display: block; }
-  .pcard .ptype { font-size: 13pt; font-weight: 700; color: #111; margin-top: 2mm; letter-spacing: 0.06em; }
+  .pcard .ptype {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #111;
+    margin-top: 2mm;
+    letter-spacing: 0.06em;
+    border: 0.6mm solid currentColor;
+    border-radius: 999px;
+    padding: 0.8mm 4.5mm;
+  }
+
+  /* print variants: text + pill border in a muted type color (no background
+     fill, so the colors survive even when "background graphics" is off) */
+  .ptype.t-kmovie { color: #5f83ad; }
+  .ptype.t-fmovie { color: #6f9873; }
+  .ptype.t-kdrama { color: #b57676; }
+  .ptype.t-fdrama { color: #947fb0; }
   .pcard .pnum { position: absolute; bottom: 3mm; right: 3.5mm; font-size: 8pt; font-weight: 700; color: #aaa; }
 
   .pback { text-align: center; padding: 4mm; position: relative; color: #111; }
