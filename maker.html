@@ -59,6 +59,17 @@
       </div>
     </div>
 
+    <div class="field">
+      <label for="in-type">영상 타입 (카드 앞면에 힌트로 인쇄돼요)</label>
+      <select id="in-type" style="width:100%">
+        <option value="">선택 안 함</option>
+        <option>한국영화</option>
+        <option>해외영화</option>
+        <option>한국드라마</option>
+        <option>해외드라마</option>
+      </select>
+    </div>
+
     <p class="error-msg" id="form-error"></p>
 
     <div class="btn-row">
@@ -75,7 +86,8 @@
     <h2>시트로 한꺼번에 추가</h2>
     <p class="hint">
       구글시트에 한 행에 카드 하나씩, 아래 순서대로 열을 채우세요. 첫 행은 제목 행이어도 됩니다.<br>
-      <b>링크 · 시작 · 끝 · 제목 · 연도 · 발화자</b><br>
+      <b>링크 · 시작 · 끝 · 제목 · 연도 · 발화자 · 타입</b><br>
+      타입은 한국영화 / 해외영화 / 한국드라마 / 해외드라마 중 하나로 적으면 카드 앞면에 힌트로 인쇄됩니다.<br>
       끝을 비우면 시작+7초로 자동 설정됩니다. 시작·끝 열은 셀 서식을 "일반 텍스트"로 두고
       15:30 형식 또는 초 단위 숫자(930)로 적으세요.
       시트는 공유 설정에서 <b>"링크가 있는 모든 사용자 - 뷰어"</b>로 열어 두어야 앱이 읽을 수 있습니다.
@@ -192,12 +204,14 @@
       videoId: id, start: start, end: end,
       title: $('in-title').value.trim(),
       year: $('in-year').value.trim(),
-      speaker: $('in-speaker').value.trim()
+      speaker: $('in-speaker').value.trim(),
+      type: $('in-type').value
     };
   }
 
   function answerLine(c) {
     var parts = [];
+    if (c.type) parts.push(c.type);
     if (c.title) parts.push(c.title + (c.year ? ' (' + c.year + ')' : ''));
     else if (c.year) parts.push(c.year);
     if (c.speaker) parts.push(c.speaker);
@@ -338,6 +352,7 @@
     $('in-title').value = '';
     $('in-year').value = '';
     $('in-speaker').value = '';
+    $('in-type').value = '';
     $('preview-shell').hidden = true;
     $('preview-box').innerHTML = '';
   });
@@ -353,10 +368,16 @@
     qr.addData(qrText(c));
     qr.make();
     qrBox.innerHTML = qr.createSvgTag(4, 16);
+    pc.appendChild(qrBox);
+    if (c.type) {
+      var type = document.createElement('div');
+      type.className = 'ptype';
+      type.textContent = c.type;
+      pc.appendChild(type);
+    }
     var num = document.createElement('div');
     num.className = 'pnum';
     num.textContent = '#' + n;
-    pc.appendChild(qrBox);
     pc.appendChild(num);
     return pc;
   }
@@ -451,7 +472,8 @@
         videoId: id, start: start, end: end,
         title: (cols[3] || '').trim(),
         year: (cols[4] || '').trim(),
-        speaker: (cols[5] || '').trim()
+        speaker: (cols[5] || '').trim(),
+        type: (cols[6] || '').trim()
       });
       added++;
     });

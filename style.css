@@ -474,9 +474,11 @@ textarea {
     page-break-inside: avoid;
   }
 
+  .pcard { position: relative; }
   .pcard .pqr { width: 50mm; height: 50mm; }
   .pcard .pqr svg { width: 100%; height: 100%; display: block; }
-  .pcard .pnum { font-size: 9.5pt; font-weight: 700; color: #777; margin-top: 2.5mm; }
+  .pcard .ptype { font-size: 13pt; font-weight: 700; color: #111; margin-top: 2mm; letter-spacing: 0.06em; }
+  .pcard .pnum { position: absolute; bottom: 3mm; right: 3.5mm; font-size: 8pt; font-weight: 700; color: #aaa; }
 
   .pback { text-align: center; padding: 4mm; position: relative; color: #111; }
   .pback .ptitle { font-size: 16pt; font-weight: 700; line-height: 1.3; word-break: keep-all; }
