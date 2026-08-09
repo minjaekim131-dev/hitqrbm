@@ -545,33 +545,27 @@ textarea {
     page-break-inside: avoid;
   }
 
+  /* the front stays a bare QR: no type hint, nothing that narrows the answer
+     down before the clip is played */
   .pcard { position: relative; }
   .pcard .pqr { width: 50mm; height: 50mm; }
   .pcard .pqr svg { width: 100%; height: 100%; display: block; }
-  .pcard .ptype {
-    font-size: 11pt;
-    font-weight: 700;
-    color: #111;
-    margin-top: 2mm;
-    letter-spacing: 0.06em;
-    border: 0.6mm solid currentColor;
-    border-radius: 999px;
-    padding: 0.8mm 4.5mm;
-  }
+  .pcard .pnum { position: absolute; bottom: 3mm; right: 3.5mm; font-size: 9pt; font-weight: 700; color: #aaa; }
 
-  /* print variants: text + pill border in a muted type color (no background
-     fill, so the colors survive even when "background graphics" is off) */
-  .ptype.t-kmovie { color: #5f83ad; }
-  .ptype.t-fmovie { color: #6f9873; }
-  .ptype.t-kdrama { color: #b57676; }
-  .ptype.t-fdrama { color: #947fb0; }
-  .pcard .pnum { position: absolute; bottom: 3mm; right: 3.5mm; font-size: 8pt; font-weight: 700; color: #aaa; }
-
+  /* the back is read across a table, so it runs large. line-heights are pulled
+     in tight to buy the room back: a 2-line title plus a 2-line speaker still
+     fits inside the 70mm cell */
   .pback { text-align: center; padding: 4mm; position: relative; color: #111; }
-  .pback .ptitle { font-size: 16pt; font-weight: 700; line-height: 1.3; word-break: keep-all; }
-  .pback .pyear { font-size: 50pt; font-weight: 900; letter-spacing: -0.02em; margin: 2.5mm 0; }
-  .pback .pspeaker { font-size: 15pt; color: #333; word-break: keep-all; }
-  .pback .pn { position: absolute; bottom: 3mm; right: 3.5mm; font-size: 8pt; color: #aaa; }
+  .pback .ptitle { font-size: 19pt; font-weight: 700; line-height: 1.3; word-break: keep-all; }
+  .pback .pyear {
+    font-size: 58pt;
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 2mm 0;
+  }
+  .pback .pspeaker { font-size: 17pt; line-height: 1.35; color: #333; word-break: keep-all; }
+  .pback .pn { position: absolute; bottom: 3mm; right: 3.5mm; font-size: 9pt; color: #aaa; }
 
   .pblank { border: 0; }
 }

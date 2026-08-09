@@ -60,7 +60,7 @@
     </div>
 
     <div class="field">
-      <label for="in-type">영상 타입 (카드 앞면에 힌트로 인쇄돼요)</label>
+      <label for="in-type">영상 타입 (덱 정리용 — 카드에는 인쇄되지 않아요)</label>
       <select id="in-type" style="width:100%">
         <option value="">선택 안 함</option>
         <option>한국영화</option>
@@ -87,7 +87,7 @@
     <p class="hint">
       구글시트에 한 행에 카드 하나씩, 아래 순서대로 열을 채우세요. 첫 행은 제목 행이어도 됩니다.<br>
       <b>링크 · 시작 · 끝 · 제목 · 연도 · 발화자 · 타입</b><br>
-      타입은 한국영화 / 해외영화 / 한국드라마 / 해외드라마 중 하나로 적으면 카드 앞면에 힌트로 인쇄됩니다.<br>
+      타입은 한국영화 / 해외영화 / 한국드라마 / 해외드라마 중 하나로 적으면 덱 화면에서 분류에 쓰입니다. 카드에는 인쇄되지 않습니다.<br>
       끝을 비우면 시작+7초로 자동 설정됩니다. 시작·끝 열은 셀 서식을 "일반 텍스트"로 두고
       15:30 형식 또는 초 단위 숫자(930)로 적으세요.
       시트는 공유 설정에서 <b>"링크가 있는 모든 사용자 - 뷰어"</b>로 열어 두어야 앱이 읽을 수 있습니다.
@@ -192,7 +192,7 @@
     return 'https://youtu.be/' + c.videoId + '?t=' + c.start + '&end=' + c.end;
   }
 
-  // one distinct color per type, shared by the screen badges and the print pills
+  // one distinct color per type, used by the deck badges on screen
   var TYPE_CLASS = {
     '한국영화': 't-kmovie',
     '해외영화': 't-fmovie',
@@ -403,12 +403,8 @@
     qr.make();
     qrBox.innerHTML = qr.createSvgTag(4, 16);
     pc.appendChild(qrBox);
-    if (c.type) {
-      var type = document.createElement('div');
-      type.className = 'ptype' + (TYPE_CLASS[c.type] ? ' ' + TYPE_CLASS[c.type] : '');
-      type.textContent = c.type;
-      pc.appendChild(type);
-    }
+    // the type is deliberately NOT printed here: it narrowed the answer down
+    // before anyone even heard the clip. it stays on the deck screen only.
     var num = document.createElement('div');
     num.className = 'pnum';
     num.textContent = '#' + n;
