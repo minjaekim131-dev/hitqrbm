@@ -27,7 +27,7 @@
       <ol>
         <li><strong>QR 스캔</strong> 후 재생 버튼을 누르고 <strong>휴대폰을 뒤집어 두세요</strong></li>
         <li>소리만 듣고 노래(영상)를 맞힙니다</li>
-        <li>시간이 다 되면 <strong>알람과 함께 정답이 공개</strong>됩니다</li>
+        <li>시간이 다 되면 <strong>알람</strong>이 울려요. 답을 정했다면 <strong>정답 공개 버튼</strong>을 누르세요</li>
       </ol>
     </div>
     <div class="setting-row">
@@ -73,7 +73,13 @@
         <span class="phase-badge">LISTEN</span>
         <div class="countdown" id="countdown">30</div>
         <div class="progress"><i id="progress-bar"></i></div>
-        <div class="flip-note">지금 휴대폰을 뒤집어 두세요! 알람이 울리면 정답이 공개됩니다</div>
+        <div class="flip-note">지금 휴대폰을 뒤집어 두세요! 시간이 다 되면 알람이 울립니다</div>
+      </div>
+
+      <div id="phase-timeup" hidden>
+        <span class="phase-badge alert">TIME UP</span>
+        <h2>시간 종료!</h2>
+        <p>답을 정했다면 아래 <strong>정답 공개</strong>를 누르세요</p>
       </div>
 
       <div id="phase-answer" hidden>
@@ -85,6 +91,9 @@
 
     <div class="player-shell" id="player-shell" hidden>
       <div id="player"></div>
+      <!-- keeps the video frame from spoiling the answer while the clip plays
+           and while the time-up screen waits for the reveal button -->
+      <div class="player-cover" id="player-cover"><span>🔒 화면은 정답 공개 후에</span></div>
     </div>
 
     <div class="btn-row" id="playing-buttons" hidden>
@@ -129,12 +138,18 @@
     });
   }
 
+  // phases: ready -> playing -> timeup -> answer
+  // 'timeup' keeps the same button row as 'playing' (replay stays available)
+  // and only swaps the primary button's label.
   function showPhase(name) {
     $('phase-ready').hidden = name !== 'ready';
     $('phase-playing').hidden = name !== 'playing';
+    $('phase-timeup').hidden = name !== 'timeup';
     $('phase-answer').hidden = name !== 'answer';
     $('player-shell').hidden = name === 'ready';
-    $('playing-buttons').hidden = name !== 'playing';
+    $('player-cover').hidden = name === 'answer';
+    $('btn-giveup').textContent = name === 'timeup' ? '정답 공개' : '정답 확인';
+    $('playing-buttons').hidden = name !== 'playing' && name !== 'timeup';
     $('answer-buttons').hidden = name !== 'answer';
   }
 
@@ -272,8 +287,17 @@
       clearInterval(timerId);
       timerId = null;
       playAlarm();
-      reveal();
+      timeUp();
     }
+  }
+
+  // time is over: stop the clip and wait for the reveal button.
+  // the answer stays hidden until the player taps it.
+  function timeUp() {
+    if (player && playerReady) {
+      try { player.pauseVideo(); } catch (e) { /* nothing playing */ }
+    }
+    showPhase('timeup');
   }
 
   function playAlarm() {

@@ -300,6 +300,13 @@ textarea {
   margin-bottom: 12px;
 }
 
+/* time-up badge: pink so it reads as an alarm, not another calm step */
+.phase-badge.alert {
+  color: #ff6b9d;
+  background: rgba(255, 46, 136, 0.12);
+  border-color: rgba(255, 46, 136, 0.4);
+}
+
 .game-head { text-align: center; padding: 12px 0 6px; }
 
 .game-head h2 {
@@ -347,6 +354,7 @@ textarea {
 }
 
 .player-shell {
+  position: relative;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--line);
@@ -356,6 +364,21 @@ textarea {
 }
 
 .player-shell iframe { width: 100%; height: 100%; display: block; border: 0; }
+
+/* opaque lid over the video: the clip keeps playing underneath, so audio is
+   unaffected, but nothing on screen gives the answer away before the reveal */
+.player-cover {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.player-cover[hidden] { display: none; }
 
 .flip-note {
   background: rgba(255, 46, 136, 0.1);
