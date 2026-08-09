@@ -24,6 +24,7 @@
     <div class="field">
       <label for="in-url">유튜브 링크</label>
       <input type="url" id="in-url" placeholder="https://www.youtube.com/watch?v=...">
+      <p class="embed-warn" id="embed-warn"></p>
     </div>
 
     <div class="time-row">
@@ -126,12 +127,14 @@
       <span class="deck-count" id="deck-count">0장</span>
       <span class="spacer"></span>
       <button class="btn btn-ghost btn-small" id="btn-print">인쇄</button>
+      <button class="btn btn-ghost btn-small" id="btn-check">전체 검사</button>
       <button class="btn btn-ghost btn-small" id="btn-sample">샘플 덱</button>
       <button class="btn btn-ghost btn-small" id="btn-export">내보내기</button>
       <button class="btn btn-ghost btn-small" id="btn-import">가져오기</button>
       <button class="btn btn-ghost btn-small" id="btn-clear">전체 삭제</button>
       <input type="file" id="import-file" accept=".json,application/json" hidden>
     </div>
+    <p class="check-msg" id="check-msg"></p>
     <div class="deck-grid" id="deck-grid"></div>
     <p class="empty-note" id="empty-note">아직 카드가 없어요. 위에서 첫 카드를 만들어 보세요!</p>
   </div>
@@ -140,6 +143,7 @@
 
 <div id="print-area"></div>
 <div id="title-probe" style="position:fixed;left:-9999px;top:0;width:320px;height:180px" aria-hidden="true"></div>
+<div id="deck-probe" style="position:fixed;left:-9999px;top:0;width:320px;height:180px" aria-hidden="true"></div>
 
 <script>
 (function () {
@@ -218,13 +222,16 @@
     if (end === null) end = start + 7;
     if (end <= start) return { error: '끝 시간은 시작 시간보다 뒤여야 해요.' };
     if (end - start > 30) return { error: '구간이 30초를 넘어요. 5~10초 정도가 알맞아요.' };
-    return {
+    var c = {
       videoId: id, start: start, end: end,
       title: $('in-title').value.trim(),
       year: $('in-year').value.trim(),
       speaker: $('in-speaker').value.trim(),
       type: $('in-type').value
     };
+    // carried onto the card so the deck flags it long after the probe ran
+    if (embedOk[id] === false) c.blocked = true;
+    return c;
   }
 
   function answerLine(c) {
@@ -240,6 +247,9 @@
   var titlePlayer = null;
   var wantTitleFor = null;
   var pendingTitleId = null;
+  // videoId -> true (plays here) / false (owner blocked outside playback, or
+  // the video is gone). the same probe that fills the title reports this.
+  var embedOk = {};
 
   window.onYouTubeIframeAPIReady = function () {
     if (pendingTitleId) { var v = pendingTitleId; pendingTitleId = null; fetchTitle(v); }
@@ -251,8 +261,27 @@
       if (d && d.title && d.video_id === wantTitleFor) {
         var f = $('in-title');
         if (!f.value) f.value = d.title;
+        embedOk[wantTitleFor] = true;
+        $('embed-warn').textContent = '';
       }
     } catch (e) { /* title stays manual */ }
+  }
+
+  // 101 / 150: the owner disabled playback outside youtube.com. such a card
+  // scans fine but plays nothing, so it is worth catching before printing.
+  var EMBED_ERROR_TEXT = {
+    2: '링크가 잘못됐어요.',
+    5: '이 브라우저에서 재생할 수 없는 영상이에요.',
+    100: '영상을 찾을 수 없어요. 삭제되었거나 비공개예요.',
+    101: '이 영상은 소유자가 유튜브 밖에서의 재생을 막아 두었어요. 카드로 만들면 스캔은 되지만 소리가 나지 않아요.',
+    150: '이 영상은 소유자가 유튜브 밖에서의 재생을 막아 두었어요. 카드로 만들면 스캔은 되지만 소리가 나지 않아요.'
+  };
+
+  function onProbeError(code) {
+    if (!wantTitleFor) return;
+    embedOk[wantTitleFor] = false;
+    $('embed-warn').textContent =
+      '⚠️ ' + (EMBED_ERROR_TEXT[code] || ('재생할 수 없는 영상이에요. (유튜브 오류 ' + code + ')'));
   }
 
   function fetchTitle(videoId) {
@@ -266,10 +295,91 @@
         playerVars: { mute: 1 },
         events: {
           onReady: grabTitle,
-          onStateChange: function (e) { if (e.data === YT.PlayerState.CUED) grabTitle(); }
+          onStateChange: function (e) { if (e.data === YT.PlayerState.CUED) grabTitle(); },
+          onError: function (e) { onProbeError(e.data); }
         }
       });
     }
+  }
+
+  // ---------- deck-wide embeddability check ----------
+  // Cards added through the sheet importer never pass the link field, so the
+  // form probe never sees them. This walks the deck through one hidden player
+  // instead, cueing a card at a time. A card is marked blocked only on an
+  // explicit error; a slow answer is reported as unchecked rather than guessed.
+  var deckPlayer = null;
+  var queue = [];        // [{ i: deckIndex, videoId: string }]
+  var queuePos = 0;
+  var queueTimer = null;
+  var queueSettled = false;
+  var queueStats = null;
+  var queuePrefix = '';
+
+  function startDeckCheck(indices, prefix) {
+    if (queue.length) { $('check-msg').textContent = '이미 검사가 진행 중이에요.'; return; }
+    if (!indices.length) return;
+    if (!(window.YT && window.YT.Player)) {
+      $('check-msg').textContent = '유튜브 재생기가 아직 준비되지 않았어요. 잠시 후 다시 눌러 주세요.';
+      return;
+    }
+    queue = indices.map(function (i) { return { i: i, videoId: deck[i].videoId }; });
+    queuePos = 0;
+    queuePrefix = prefix || '';
+    queueStats = { ok: 0, blocked: 0, unknown: 0 };
+    stepCheck();
+  }
+
+  function stepCheck() {
+    if (queuePos >= queue.length) return finishCheck();
+    $('check-msg').textContent =
+      queuePrefix + '재생 가능 여부 검사 중... ' + (queuePos + 1) + '/' + queue.length;
+    queueSettled = false;
+    clearTimeout(queueTimer);
+    queueTimer = setTimeout(function () { settleCheck('unknown'); }, 6000);
+    var videoId = queue[queuePos].videoId;
+    if (deckPlayer) deckPlayer.cueVideoById(videoId);
+    else createDeckPlayer(videoId);
+  }
+
+  function settleCheck(verdict) {
+    if (queueSettled) return;
+    queueSettled = true;
+    clearTimeout(queueTimer);
+    var item = queue[queuePos];
+    var card = deck[item.i];
+    // the deck can be edited mid-run, so only write to a card still sitting
+    // at the index we queued
+    if (card && card.videoId === item.videoId) {
+      if (verdict === 'ok') { delete card.blocked; queueStats.ok++; }
+      else if (verdict === 'blocked') { card.blocked = true; queueStats.blocked++; }
+      else queueStats.unknown++;
+      embedOk[item.videoId] = verdict === 'ok';
+    }
+    queuePos++;
+    setTimeout(stepCheck, 250);
+  }
+
+  function finishCheck() {
+    queue = [];
+    save();
+    render();
+    var msg = queuePrefix + '검사 완료 — 재생 가능 ' + queueStats.ok + '장';
+    if (queueStats.blocked) msg += ', 재생 불가 ' + queueStats.blocked + '장';
+    if (queueStats.unknown) msg += ', 확인 실패 ' + queueStats.unknown + '장';
+    if (queueStats.blocked) msg += ' (⚠️ 표시된 카드를 교체하세요)';
+    $('check-msg').textContent = msg;
+  }
+
+  function createDeckPlayer(videoId) {
+    deckPlayer = new YT.Player('deck-probe', {
+      videoId: videoId,
+      playerVars: { mute: 1 },
+      events: {
+        onReady: function () { settleCheck('ok'); },
+        onStateChange: function (e) { if (e.data === YT.PlayerState.CUED) settleCheck('ok'); },
+        onError: function () { settleCheck('blocked'); }
+      }
+    });
   }
 
   // ---------- render ----------
@@ -321,6 +431,14 @@
       timeMeta.textContent = formatTime(c.start) + ' ~ ' + formatTime(c.end);
       el.appendChild(timeMeta);
 
+      if (c.blocked) {
+        var warn = document.createElement('div');
+        warn.className = 'card-blocked';
+        warn.textContent = '⚠️ 외부 재생 불가';
+        warn.title = '소유자가 유튜브 밖에서의 재생을 막은 영상이에요. 인쇄 전에 교체하세요.';
+        el.appendChild(warn);
+      }
+
       var del = document.createElement('button');
       del.className = 'del';
       del.textContent = '삭제';
@@ -346,6 +464,7 @@
         if (sec) $('in-start').value = formatTime(sec);
       }
     } catch (e) { /* not a URL yet */ }
+    $('embed-warn').textContent = '';
     var id = parseVideoId(this.value);
     if (id) fetchTitle(id);
   });
@@ -381,6 +500,10 @@
     deck.push(c);
     save();
     render();
+    if (c.blocked) {
+      $('embed-warn').textContent =
+        '⚠️ #' + deck.length + ' 카드는 외부 재생이 막힌 영상이에요. 인쇄 전에 교체하세요.';
+    }
     $('in-start').value = '';
     $('in-end').value = '';
     $('in-title').value = '';
@@ -511,6 +634,14 @@
     if (added) { save(); render(); }
     var msg = added + '장 추가됨';
     if (errors.length) msg += ' / 실패 ' + errors.length + '건 — ' + errors.join(', ');
+    if (added) {
+      // sheet rows never pass through the link field, so the new cards have
+      // not been probed yet — check them straight away
+      var fresh = [];
+      for (var k = deck.length - added; k < deck.length; k++) fresh.push(k);
+      msg += ' — 아래 덱에서 재생 가능 여부를 검사하고 있어요';
+      startDeckCheck(fresh, '방금 추가한 ' + added + '장: ');
+    }
     $('bulk-msg').textContent = msg;
     return added > 0 && errors.length === 0;
   }
@@ -593,6 +724,11 @@
       return cols;
     });
     if (importRows(rows)) $('bulk-input').value = '';
+  });
+
+  $('btn-check').addEventListener('click', function () {
+    if (deck.length === 0) { $('check-msg').textContent = '검사할 카드가 없어요.'; return; }
+    startDeckCheck(deck.map(function (c, i) { return i; }), '');
   });
 
   $('btn-sample').addEventListener('click', function () {
