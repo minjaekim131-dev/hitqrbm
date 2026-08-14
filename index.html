@@ -84,7 +84,9 @@
 
       <div id="phase-answer" hidden>
         <span class="phase-badge">ANSWER</span>
+        <div class="answer-year" id="answer-year" hidden></div>
         <div class="answer-title" id="answer-title">정답 공개!</div>
+        <div class="answer-speaker" id="answer-speaker" hidden><span id="answer-speaker-text"></span></div>
       </div>
 
       <div id="phase-blocked" hidden>
@@ -188,7 +190,24 @@
     var start = parseInt(String(t).replace(/s$/, ''), 10) || 0;
     var end = parseInt(url.searchParams.get('end') || '0', 10) || 0;
     if (!end || end <= start) end = start + 7;
-    return { videoId: id, start: start, end: end };
+    return { videoId: id, start: start, end: end, answer: unpackAnswer(url.searchParams.get('a')) };
+  }
+
+  // Cards printed by the maker carry the answer as base64url of
+  // "title|year|speaker". Older cards have no `a` at all, and those still work
+  // — the answer screen just falls back to the YouTube video title.
+  function unpackAnswer(packed) {
+    if (!packed) return null;
+    try {
+      var bin = atob(packed.replace(/-/g, '+').replace(/_/g, '/'));
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      var parts = new TextDecoder().decode(bytes).split('|');
+      var a = { title: parts[0] || '', year: parts[1] || '', speaker: parts[2] || '' };
+      return (a.title || a.year || a.speaker) ? a : null;
+    } catch (e) {
+      return null;   // a garbled payload should not stop the card from playing
+    }
   }
 
   // ---------- camera scan ----------
@@ -358,17 +377,47 @@
     if (timerId) { clearInterval(timerId); timerId = null; }
     releaseWake();
     showPhase('answer');
-    var title = '정답 공개!';
+
+    var ytTitle = '';
     try {
       var data = player && player.getVideoData && player.getVideoData();
-      if (data && data.title) title = data.title;
-    } catch (e) { /* keep default title */ }
-    $('answer-title').textContent = title;
+      if (data && data.title) ytTitle = data.title;
+    } catch (e) { /* fall back to the generic heading */ }
+
+    // the card's own answer wins; the YouTube title is only a stand-in for
+    // cards printed before the answer was carried in the QR
+    var a = card && card.answer;
+    $('answer-year').textContent = a ? a.year : '';
+    $('answer-year').hidden = !(a && a.year);
+    $('answer-title').textContent = (a && a.title) || ytTitle || '정답 공개!';
+    setSpeaker(a ? a.speaker : '');
     // replay the scene (video visible this time) from the clip start;
     // no end limit so the answer scene can keep playing
     if (player && playerReady) {
       player.loadVideoById({ videoId: card.videoId, startSeconds: card.start });
     }
+  }
+
+  // A long "배역 (배우)" line would either wrap into the buttons or get cut
+  // off, so anything wider than the screen slides back and forth instead.
+  function setSpeaker(text) {
+    var box = $('answer-speaker');
+    var span = $('answer-speaker-text');
+    box.classList.remove('scroll');
+    span.style.removeProperty('--shift');
+    span.style.removeProperty('--dur');
+    span.textContent = text || '';
+    box.hidden = !text;
+    if (!text) return;
+    // the answer screen is already on screen by now, so reading scrollWidth
+    // forces layout and gives a real measurement. rAF would be throttled
+    // whenever the page is not compositing, and the name would never scroll.
+    var overflow = span.scrollWidth - box.clientWidth;
+    if (overflow <= 4) return;
+    var travel = overflow + 6;
+    span.style.setProperty('--shift', -travel + 'px');
+    span.style.setProperty('--dur', Math.max(4, travel / 40).toFixed(1) + 's');
+    box.classList.add('scroll');
   }
 
   // ---------- wake lock ----------

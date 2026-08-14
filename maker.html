@@ -192,8 +192,30 @@
     return mm + ':' + ss;
   }
 
+  // The game only ever sees what the QR carries, so the answer rides along in
+  // an `a` parameter. Percent-encoding Korean text would roughly triple the
+  // payload (3 bytes per character, then 3 characters per byte) and push the
+  // symbol into a much denser version, so it is packed as base64url instead —
+  // the QR stays pure ASCII and a few versions smaller.
+  function packAnswer(c) {
+    var parts = [c.title || '', c.year || '', c.speaker || ''].map(function (s) {
+      return String(s).replace(/\|/g, '/');   // the separator must stay unique
+    });
+    if (!parts.join('')) return '';
+    try {
+      var bytes = new TextEncoder().encode(parts.join('|'));
+      var bin = '';
+      for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    } catch (e) {
+      return '';   // fall back to a plain link rather than a broken card
+    }
+  }
+
   function qrText(c) {
-    return 'https://youtu.be/' + c.videoId + '?t=' + c.start + '&end=' + c.end;
+    var url = 'https://youtu.be/' + c.videoId + '?t=' + c.start + '&end=' + c.end;
+    var packed = packAnswer(c);
+    return packed ? url + '&a=' + packed : url;
   }
 
   // one distinct color per type, used by the deck badges on screen

@@ -357,11 +357,51 @@ textarea {
   transition: width 0.2s linear;
 }
 
+/* answer screen: the year carries it, the work and the speaker sit under it */
+.answer-year {
+  font-variant-numeric: tabular-nums;
+  font-size: 4.2rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 .answer-title {
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   font-weight: 800;
-  margin: 6px 0 16px;
+  margin: 4px 0 6px;
   word-break: keep-all;
+}
+
+.answer-speaker {
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.answer-speaker > span { display: inline-block; }
+
+/* only added when the name is genuinely wider than the screen; --shift and
+   --dur are measured in JS so the travel matches the actual overflow */
+.answer-speaker.scroll > span {
+  animation: answer-marquee var(--dur, 8s) ease-in-out infinite alternate;
+}
+
+@keyframes answer-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--shift, 0)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .answer-speaker { white-space: normal; }
+  .answer-speaker.scroll > span { animation: none; }
 }
 
 .player-shell {
