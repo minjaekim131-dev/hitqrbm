@@ -135,6 +135,15 @@
       <input type="file" id="import-file" accept=".json,application/json" hidden>
     </div>
     <p class="check-msg" id="check-msg"></p>
+
+    <div class="deck-preview" id="deck-preview" hidden>
+      <div class="deck-preview-head">
+        <span id="deck-preview-label"></span>
+        <button class="btn btn-ghost btn-small" id="btn-preview-close">닫기</button>
+      </div>
+      <div class="player-shell" id="deck-preview-box"></div>
+    </div>
+
     <div class="deck-grid" id="deck-grid"></div>
     <p class="empty-note" id="empty-note">아직 카드가 없어요. 위에서 첫 카드를 만들어 보세요!</p>
   </div>
@@ -404,6 +413,34 @@
     });
   }
 
+  // ---------- deck preview ----------
+  // The form has its own 구간 미리듣기, but cards that arrived through the
+  // sheet importer never passed through it, so each deck card gets a way to
+  // hear its own clip. One shared player, opened above the grid.
+  function previewCard(i) {
+    var c = deck[i];
+    if (!c) return;
+    $('deck-preview-label').textContent =
+      '#' + (i + 1) + ' ' + (c.title || '(제목 없음)') +
+      ' · ' + formatTime(c.start) + ' ~ ' + formatTime(c.end);
+    var box = $('deck-preview-box');
+    box.innerHTML = '';
+    var iframe = document.createElement('iframe');
+    iframe.src = 'https://www.youtube.com/embed/' + c.videoId +
+      '?start=' + c.start + '&end=' + c.end + '&autoplay=1&playsinline=1&rel=0';
+    iframe.allow = 'autoplay; encrypted-media';
+    iframe.allowFullscreen = true;
+    box.appendChild(iframe);
+    $('deck-preview').hidden = false;
+    $('deck-preview').scrollIntoView({ block: 'nearest' });
+  }
+
+  // dropping the iframe is what actually stops the audio
+  function closePreview() {
+    $('deck-preview').hidden = true;
+    $('deck-preview-box').innerHTML = '';
+  }
+
   // ---------- render ----------
   function render() {
     var grid = $('deck-grid');
@@ -461,15 +498,26 @@
         el.appendChild(warn);
       }
 
+      var actions = document.createElement('div');
+      actions.className = 'card-actions';
+
+      var play = document.createElement('button');
+      play.className = 'play';
+      play.textContent = '▶ 미리듣기';
+      play.addEventListener('click', function () { previewCard(i); });
+      actions.appendChild(play);
+
       var del = document.createElement('button');
       del.className = 'del';
       del.textContent = '삭제';
       del.addEventListener('click', function () {
+        closePreview();          // indexes shift, so never leave it pointing elsewhere
         deck.splice(i, 1);
         save();
         render();
       });
-      el.appendChild(del);
+      actions.appendChild(del);
+      el.appendChild(actions);
 
       grid.appendChild(el);
     });
@@ -748,6 +796,8 @@
     if (importRows(rows)) $('bulk-input').value = '';
   });
 
+  $('btn-preview-close').addEventListener('click', closePreview);
+
   $('btn-check').addEventListener('click', function () {
     if (deck.length === 0) { $('check-msg').textContent = '검사할 카드가 없어요.'; return; }
     startDeckCheck(deck.map(function (c, i) { return i; }), '');
@@ -800,6 +850,7 @@
   $('btn-clear').addEventListener('click', function () {
     if (deck.length === 0) return;
     if (!confirm('카드 ' + deck.length + '장을 모두 삭제할까요?')) return;
+    closePreview();
     deck = [];
     save();
     render();
