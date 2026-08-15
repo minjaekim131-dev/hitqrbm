@@ -529,6 +529,14 @@
         el.appendChild(warn);
       }
 
+      if (c.noRange) {
+        var noRange = document.createElement('div');
+        noRange.className = 'card-norange';
+        noRange.textContent = '⏱ 구간 미지정';
+        noRange.title = '시트에 시작 시간이 없어 영상 맨 앞부터 잡혔어요. 들려줄 장면을 정해 주세요.';
+        el.appendChild(noRange);
+      }
+
       var actions = document.createElement('div');
       actions.className = 'card-actions';
 
@@ -710,6 +718,7 @@
   // is not a URL is treated as a header and skipped.
   function importRows(rows) {
     var added = 0;
+    var blank = 0;
     var errors = [];
     rows.forEach(function (cols, i) {
       var url = (cols[0] || '').trim();
@@ -721,6 +730,10 @@
       var rawStart = (cols[1] || '').trim();
       var start = parseStart(rawStart);
       if (start === null) { errors.push((i + 1) + '행: 시작 시간을 알아볼 수 없음 ("' + rawStart + '")'); return; }
+      // a blank start is legal and means the top of the video, but on a sheet
+      // it usually means "not filled in yet" — the card is flagged so a row
+      // nobody got around to does not slip onto paper as a 7 second clip
+      var noRange = rawStart === '';
       var rawEnd = (cols[2] || '').trim();
       var end = rawEnd === '' ? start + 7 : parseTime(rawEnd);
       if (end === null) {
@@ -728,17 +741,22 @@
         return;
       }
       if (end <= start) { errors.push((i + 1) + '행: 끝이 시작보다 앞'); return; }
-      deck.push({
+      var card = {
         videoId: id, start: start, end: end,
         title: (cols[3] || '').trim(),
         year: (cols[4] || '').trim(),
         speaker: (cols[5] || '').trim(),
         type: (cols[6] || '').trim()
-      });
+      };
+      if (noRange) { card.noRange = true; blank++; }
+      deck.push(card);
       added++;
     });
     if (added) { save(); render(); }
     var msg = added + '장 추가됨';
+    if (blank) {
+      msg += ' / 그중 ' + blank + '장은 시작 시간이 비어 있어 0:00부터 잡혔어요 (덱에서 ⏱ 표시 확인)';
+    }
     if (errors.length) msg += ' / 실패 ' + errors.length + '건 — ' + errors.join(', ');
     if (added) {
       // sheet rows never pass through the link field, so the new cards have
@@ -803,6 +821,31 @@
   // Import straight from a Google Sheet shared as "anyone with the link".
   // The gviz CSV endpoint serves public sheets with CORS enabled, so this
   // works from a static page without any API key.
+  // The gviz endpoint decides a single type per column and then blanks out
+  // every cell that disagrees with it. A start column holding both "1:48" and
+  // a bare 39 gets typed as a time, and each plain number arrives empty — the
+  // row looks unfilled when the sheet plainly shows a value. The export
+  // endpoint hands back what the sheet displays, so it is tried first and gviz
+  // stays as a fallback for sheets that refuse it.
+  function sheetCsvUrls(id, gid) {
+    return [
+      'https://docs.google.com/spreadsheets/d/' + id + '/export?format=csv&gid=' + gid,
+      'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq?tqx=out:csv&gid=' + gid
+    ];
+  }
+
+  function fetchSheetCsv(urls, i) {
+    fetch(urls[i])
+      .then(function (res) { if (!res.ok) throw new Error(res.status); return res.text(); })
+      .then(function (csv) {
+        if (importRows(parseCsv(csv))) $('sheet-url').value = '';
+      })
+      .catch(function () {
+        if (i + 1 < urls.length) { fetchSheetCsv(urls, i + 1); return; }
+        $('bulk-msg').textContent = '시트를 읽지 못했어요. 공유 설정이 "링크가 있는 모든 사용자 - 뷰어"인지 확인해 주세요.';
+      });
+  }
+
   $('btn-sheet').addEventListener('click', function () {
     var input = $('sheet-url').value.trim();
     var m = /docs\.google\.com\/spreadsheets\/d\/([\w-]+)/.exec(input);
@@ -810,14 +853,7 @@
     var gidMatch = /[#&?]gid=(\d+)/.exec(input);
     var gid = gidMatch ? gidMatch[1] : '0';
     $('bulk-msg').textContent = '시트를 읽는 중...';
-    fetch('https://docs.google.com/spreadsheets/d/' + m[1] + '/gviz/tq?tqx=out:csv&gid=' + gid)
-      .then(function (res) { if (!res.ok) throw new Error(res.status); return res.text(); })
-      .then(function (csv) {
-        if (importRows(parseCsv(csv))) $('sheet-url').value = '';
-      })
-      .catch(function () {
-        $('bulk-msg').textContent = '시트를 읽지 못했어요. 공유 설정이 "링크가 있는 모든 사용자 - 뷰어"인지 확인해 주세요.';
-      });
+    fetchSheetCsv(sheetCsvUrls(m[1], gid), 0);
   });
 
   // Fallback: rows pasted from a spreadsheet arrive tab-separated

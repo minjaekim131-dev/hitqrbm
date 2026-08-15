@@ -577,6 +577,13 @@ textarea {
   margin-top: 4px;
 }
 
+.deck-card .card-norange {
+  color: #e8b45f;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
 .deck-card .card-actions {
   display: flex;
   gap: 6px;
