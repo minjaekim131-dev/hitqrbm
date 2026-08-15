@@ -142,6 +142,8 @@
   var wakeLock = null;
   var stream = null;
   var rafId = 0;
+  var clipPlaying = false;    // the clip is mid-playback right now
+  var timeUpPending = false;  // countdown finished, waiting on the clip
 
   $('timer-select').value = String(timerLen);
 
@@ -288,9 +290,20 @@
       },
       events: {
         onReady: function () { playerReady = true; },
+        onStateChange: onPlayerState,
         onError: function (e) { onPlayerError(e.data); }
       }
     });
+  }
+
+  // The clip always runs to its end time. If the countdown gets there first we
+  // hold the alarm back rather than cutting the audio off mid-line, and fire it
+  // the moment the clip finishes.
+  function onPlayerState(e) {
+    if (e.data === YT.PlayerState.PLAYING) { clipPlaying = true; return; }
+    if (e.data !== YT.PlayerState.ENDED && e.data !== YT.PlayerState.PAUSED) return;
+    clipPlaying = false;
+    if (timeUpPending) { timeUpPending = false; playAlarm(); timeUp(); }
   }
 
   // IFrame API error codes. 101 and 150 are the same thing reported two ways:
@@ -306,6 +319,8 @@
 
   function onPlayerError(code) {
     if (timerId) { clearInterval(timerId); timerId = null; }
+    clipPlaying = false;
+    timeUpPending = false;
     releaseWake();
     $('blocked-msg').textContent =
       ERROR_TEXT[code] || ('영상을 재생할 수 없어요. (유튜브 오류 ' + code + ')');
@@ -323,6 +338,8 @@
 
   // ---------- timer / alarm ----------
   function beginPlay() {
+    clipPlaying = false;
+    timeUpPending = false;
     showPhase('playing');
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -342,6 +359,7 @@
     if (remain <= 0) {
       clearInterval(timerId);
       timerId = null;
+      if (clipPlaying) { timeUpPending = true; return; }   // let the clip finish
       playAlarm();
       timeUp();
     }
@@ -375,6 +393,9 @@
 
   function reveal() {
     if (timerId) { clearInterval(timerId); timerId = null; }
+    // the answer scene replays the video, and a pending time-up would other-
+    // wise fire when that playback ends and throw the screen backwards
+    timeUpPending = false;
     releaseWake();
     showPhase('answer');
 

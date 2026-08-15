@@ -188,8 +188,20 @@
   function parseTime(text) {
     var t = (text || '').trim();
     if (!t) return null;
+
+    // A spreadsheet rarely hands back what was typed. Number formatting adds
+    // thousands separators, and a cell left on the default format turns 16:00
+    // into a clock time — "오전 12:16:00" or "12:16:00 AM" — which still means
+    // 16 minutes past zero once the meridiem is folded back in.
+    t = t.replace(/,/g, '');
+    var pm = /(오후|PM)/i.test(t);
+    var am = /(오전|AM)/i.test(t);
+    if (pm || am) t = t.replace(/(오전|오후|AM|PM)/gi, '').trim();
+
     if (!/^\d+(:\d{1,2}){0,2}(\.\d+)?$/.test(t)) return null;
     var parts = t.split(':').map(Number);
+    if (am && parts.length > 1 && parts[0] === 12) parts[0] = 0;
+    if (pm && parts.length > 1 && parts[0] < 12) parts[0] += 12;
     var sec = 0;
     for (var i = 0; i < parts.length; i++) sec = sec * 60 + parts[i];
     return Math.floor(sec);
@@ -262,8 +274,14 @@
       return { error: '시작 시간을 15:30 또는 930 형식으로 적어 주세요. (입력값: "' +
         $('in-start').value.trim() + '") 비워 두면 영상 처음부터 시작합니다.' };
     }
-    var end = parseTime($('in-end').value);
-    if (end === null) end = start + 7;
+    // a blank end means "start + 7초", but an end that was filled in and could
+    // not be read must not quietly become that same 7 seconds
+    var rawEnd = $('in-end').value.trim();
+    var end = rawEnd === '' ? start + 7 : parseTime(rawEnd);
+    if (end === null) {
+      return { error: '끝 시간을 알아볼 수 없어요. (입력값: "' + rawEnd +
+        '") 15:36 또는 936 형식으로 적어 주세요.' };
+    }
     if (end <= start) return { error: '끝 시간은 시작 시간보다 뒤여야 해요.' };
     if (end - start > 30) return { error: '구간이 30초를 넘어요. 5~10초 정도가 알맞아요.' };
     var c = {
@@ -703,8 +721,12 @@
       var rawStart = (cols[1] || '').trim();
       var start = parseStart(rawStart);
       if (start === null) { errors.push((i + 1) + '행: 시작 시간을 알아볼 수 없음 ("' + rawStart + '")'); return; }
-      var end = parseTime((cols[2] || '').trim());
-      if (end === null) end = start + 7;
+      var rawEnd = (cols[2] || '').trim();
+      var end = rawEnd === '' ? start + 7 : parseTime(rawEnd);
+      if (end === null) {
+        errors.push((i + 1) + '행: 끝 시간을 알아볼 수 없음 ("' + rawEnd + '")');
+        return;
+      }
       if (end <= start) { errors.push((i + 1) + '행: 끝이 시작보다 앞'); return; }
       deck.push({
         videoId: id, start: start, end: end,
