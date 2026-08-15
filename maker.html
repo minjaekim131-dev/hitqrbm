@@ -29,7 +29,7 @@
 
     <div class="time-row">
       <div class="field">
-        <label for="in-start">시작 시간</label>
+        <label for="in-start">시작 시간 (비우면 처음부터)</label>
         <input type="text" id="in-start" placeholder="15:30" inputmode="numeric">
       </div>
       <div class="field">
@@ -89,8 +89,8 @@
       구글시트에 한 행에 카드 하나씩, 아래 순서대로 열을 채우세요. 첫 행은 제목 행이어도 됩니다.<br>
       <b>링크 · 시작 · 끝 · 제목 · 연도 · 발화자 · 타입</b><br>
       타입은 한국영화 / 해외영화 / 한국드라마 / 해외드라마 중 하나로 적으면 덱 화면에서 분류에 쓰입니다. 카드에는 인쇄되지 않습니다.<br>
-      끝을 비우면 시작+7초로 자동 설정됩니다. 시작·끝 열은 셀 서식을 "일반 텍스트"로 두고
-      15:30 형식 또는 초 단위 숫자(930)로 적으세요.
+      시작을 비우거나 0으로 두면 영상 처음부터, 끝을 비우면 시작+7초로 자동 설정됩니다.
+      시작·끝 열은 15:30 형식 또는 초 단위 숫자(930)로 적으세요.
       시트는 공유 설정에서 <b>"링크가 있는 모든 사용자 - 뷰어"</b>로 열어 두어야 앱이 읽을 수 있습니다.
     </p>
 
@@ -181,15 +181,25 @@
     return id;
   }
 
-  // "930" | "15:30" | "1:15:30" -> seconds
+  // "930" | "15:30" | "1:15:30" -> seconds.
+  // A trailing fraction is accepted because a spreadsheet cell holding the
+  // number 0 comes out of the CSV export as "0.0", and a card should not be
+  // rejected over the sheet's own number formatting.
   function parseTime(text) {
     var t = (text || '').trim();
     if (!t) return null;
-    if (!/^\d+(:\d{1,2}){0,2}$/.test(t)) return null;
+    if (!/^\d+(:\d{1,2}){0,2}(\.\d+)?$/.test(t)) return null;
     var parts = t.split(':').map(Number);
     var sec = 0;
     for (var i = 0; i < parts.length; i++) sec = sec * 60 + parts[i];
-    return sec;
+    return Math.floor(sec);
+  }
+
+  // A clip's start: leaving it out means the very beginning of the video.
+  // Only the start reads a blank this way — a blank end still means
+  // "start + 7 seconds", which the sheet instructions promise.
+  function parseStart(text) {
+    return String(text == null ? '' : text).trim() === '' ? 0 : parseTime(text);
   }
 
   function formatTime(sec) {
@@ -247,8 +257,11 @@
   function readForm() {
     var id = parseVideoId($('in-url').value);
     if (!id) return { error: '유튜브 링크를 알아볼 수 없어요.' };
-    var start = parseTime($('in-start').value);
-    if (start === null) return { error: '시작 시간을 15:30 같은 형식으로 적어 주세요.' };
+    var start = parseStart($('in-start').value);
+    if (start === null) {
+      return { error: '시작 시간을 15:30 또는 930 형식으로 적어 주세요. (입력값: "' +
+        $('in-start').value.trim() + '") 비워 두면 영상 처음부터 시작합니다.' };
+    }
     var end = parseTime($('in-end').value);
     if (end === null) end = start + 7;
     if (end <= start) return { error: '끝 시간은 시작 시간보다 뒤여야 해요.' };
@@ -541,8 +554,8 @@
 
   document.querySelectorAll('.chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
-      var start = parseTime($('in-start').value);
-      if (start === null) { $('form-error').textContent = '먼저 시작 시간을 적어 주세요.'; return; }
+      var start = parseStart($('in-start').value);
+      if (start === null) { $('form-error').textContent = '시작 시간을 알아볼 수 없어요. 15:30 또는 930 형식으로 적어 주세요.'; return; }
       $('form-error').textContent = '';
       $('in-end').value = formatTime(start + parseInt(this.dataset.len, 10));
     });
@@ -687,8 +700,9 @@
       if (url.indexOf('http') !== 0 && !cols.slice(1).join('').trim()) return; // note-only row
       var id = parseVideoId(url);
       if (!id) { errors.push((i + 1) + '행: 링크 인식 불가'); return; }
-      var start = parseTime((cols[1] || '').trim());
-      if (start === null) { errors.push((i + 1) + '행: 시작 시간 없음'); return; }
+      var rawStart = (cols[1] || '').trim();
+      var start = parseStart(rawStart);
+      if (start === null) { errors.push((i + 1) + '행: 시작 시간을 알아볼 수 없음 ("' + rawStart + '")'); return; }
       var end = parseTime((cols[2] || '').trim());
       if (end === null) end = start + 7;
       if (end <= start) { errors.push((i + 1) + '행: 끝이 시작보다 앞'); return; }
