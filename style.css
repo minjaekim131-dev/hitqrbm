@@ -431,6 +431,19 @@ textarea {
 
 .player-cover[hidden] { display: none; }
 
+.hint-box {
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+  color: #a5eef8;
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 16px;
+  word-break: keep-all;
+}
+
 .spoiler-note {
   background: rgba(255, 46, 136, 0.1);
   border: 1px solid rgba(255, 46, 136, 0.35);
@@ -576,6 +589,8 @@ textarea {
   font-weight: 700;
   margin-top: 4px;
 }
+
+.deck-card .card-hint { color: var(--cyan); opacity: 0.85; }
 
 .deck-card .card-norange {
   color: #e8b45f;

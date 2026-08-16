@@ -31,6 +31,13 @@
       </ol>
     </div>
     <div class="setting-row">
+      <label for="alarm-select">타이머 알람</label>
+      <select id="alarm-select">
+        <option value="on">켜기</option>
+        <option value="off">끄기</option>
+      </select>
+    </div>
+    <div class="setting-row">
       <label for="timer-select">정답 공개까지</label>
       <select id="timer-select">
         <option value="15">15초</option>
@@ -105,6 +112,9 @@
       <div class="player-cover" id="player-cover"><span>🔒 화면은 정답 공개 후에</span></div>
     </div>
 
+    <button class="btn btn-ghost" id="btn-hint" hidden style="margin-bottom:10px">💡 힌트 보기</button>
+    <div class="hint-box" id="hint-box" hidden></div>
+
     <div class="btn-row" id="playing-buttons" hidden>
       <button class="btn btn-ghost" id="btn-replay">한 번 더 듣기</button>
       <button class="btn btn-primary" id="btn-giveup">정답 확인</button>
@@ -138,6 +148,9 @@
   var timerId = null;
   var deadline = 0;
   var timerLen = parseInt(localStorage.getItem('hitqr.timer') || '30', 10);
+  var alarmOn = localStorage.getItem('hitqr.alarm') !== 'off';
+  var hintShown = false;
+  var phase = 'ready';
   var audioCtx = null;
   var wakeLock = null;
   var stream = null;
@@ -146,6 +159,7 @@
   var timeUpPending = false;  // countdown finished, waiting on the clip
 
   $('timer-select').value = String(timerLen);
+  $('alarm-select').value = alarmOn ? 'on' : 'off';
 
   // ---------- view switching ----------
   function showView(name) {
@@ -159,6 +173,7 @@
   // 'timeup' keeps the same button row as 'playing' (replay stays available)
   // and only swaps the primary button's label.
   function showPhase(name) {
+    phase = name;
     $('phase-ready').hidden = name !== 'ready';
     $('phase-playing').hidden = name !== 'playing';
     $('phase-timeup').hidden = name !== 'timeup';
@@ -172,6 +187,18 @@
     $('playing-buttons').hidden = name !== 'playing' && name !== 'timeup';
     $('answer-buttons').hidden = name !== 'answer';
     $('blocked-buttons').hidden = name !== 'blocked';
+    updateHint(name);
+  }
+
+  // The hint sits behind a button so a team only spends it when it asks. It is
+  // offered while the clip is in play and while the time-up screen waits, and
+  // disappears once the answer is out.
+  function updateHint(name) {
+    var hint = card && card.answer && card.answer.hint;
+    var live = name === 'playing' || name === 'timeup';
+    $('btn-hint').hidden = !(live && hint && !hintShown);
+    $('hint-box').hidden = !(live && hint && hintShown);
+    if (hint) $('hint-box').textContent = '💡 ' + hint;
   }
 
   // ---------- QR payload parsing ----------
@@ -205,8 +232,11 @@
       var bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       var parts = new TextDecoder().decode(bytes).split('|');
-      var a = { title: parts[0] || '', year: parts[1] || '', speaker: parts[2] || '' };
-      return (a.title || a.year || a.speaker) ? a : null;
+      var a = {
+        title: parts[0] || '', year: parts[1] || '',
+        speaker: parts[2] || '', hint: parts[3] || ''
+      };
+      return (a.title || a.year || a.speaker || a.hint) ? a : null;
     } catch (e) {
       return null;   // a garbled payload should not stop the card from playing
     }
@@ -266,6 +296,7 @@
   function onCardFound(parsed) {
     stopScan();
     card = parsed;
+    hintShown = false;   // each card gets its hint back
     showView('game');
     showPhase('ready');
   }
@@ -375,20 +406,21 @@
   }
 
   function playAlarm() {
-    if (!audioCtx) return;
+    if (!alarmOn || !audioCtx) return;
+    // a single rising chime, sounded once. it marks the moment rather than
+    // nagging: the screen has already moved to TIME UP and waits there.
     var t0 = audioCtx.currentTime + 0.05;
-    [0, 0.28, 0.56].forEach(function (dt, i) {
-      var osc = audioCtx.createOscillator();
-      var gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = i === 2 ? 1318 : 1046;
-      gain.gain.setValueAtTime(0.0001, t0 + dt);
-      gain.gain.exponentialRampToValueAtTime(0.4, t0 + dt + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 0.24);
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start(t0 + dt);
-      osc.stop(t0 + dt + 0.26);
-    });
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1046, t0);
+    osc.frequency.exponentialRampToValueAtTime(1318, t0 + 0.18);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.4, t0 + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.45);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.47);
   }
 
   function reveal() {
@@ -458,6 +490,16 @@
   $('timer-select').addEventListener('change', function () {
     timerLen = parseInt(this.value, 10);
     localStorage.setItem('hitqr.timer', this.value);
+  });
+
+  $('alarm-select').addEventListener('change', function () {
+    alarmOn = this.value !== 'off';
+    localStorage.setItem('hitqr.alarm', this.value);
+  });
+
+  $('btn-hint').addEventListener('click', function () {
+    hintShown = true;
+    updateHint(phase);
   });
 
   $('btn-start').addEventListener('click', startScan);

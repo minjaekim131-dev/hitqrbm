@@ -61,6 +61,11 @@
     </div>
 
     <div class="field">
+      <label for="in-hint">힌트 한 줄 (게임에서 힌트 버튼을 누르면 보여요)</label>
+      <input type="text" id="in-hint" placeholder="예: 반지하에 사는 가족 이야기">
+    </div>
+
+    <div class="field">
       <label for="in-type">영상 타입 (덱 정리용 — 카드에는 인쇄되지 않아요)</label>
       <select id="in-type" style="width:100%">
         <option value="">선택 안 함</option>
@@ -87,7 +92,8 @@
     <h2>시트로 한꺼번에 추가</h2>
     <p class="hint">
       구글시트에 한 행에 카드 하나씩, 아래 순서대로 열을 채우세요. 첫 행은 제목 행이어도 됩니다.<br>
-      <b>링크 · 시작 · 끝 · 제목 · 연도 · 발화자 · 타입</b><br>
+      <b>링크 · 시작 · 끝 · 제목 · 연도 · 발화자 · 타입 · 힌트</b><br>
+      힌트는 여덟 번째 열(H)에 한 줄로 적으면 게임의 힌트 버튼에서 보입니다. 비워 두면 그 카드에는 힌트 버튼이 나오지 않습니다.<br>
       타입은 한국영화 / 해외영화 / 한국드라마 / 해외드라마 중 하나로 적으면 덱 화면에서 분류에 쓰입니다. 카드에는 인쇄되지 않습니다.<br>
       시작을 비우거나 0으로 두면 영상 처음부터, 끝을 비우면 시작+7초로 자동 설정됩니다.
       시작·끝 열은 15:30 형식 또는 초 단위 숫자(930)로 적으세요.
@@ -96,9 +102,9 @@
 
     <div class="fmt-scroll">
       <table class="fmt-table">
-        <tr><th>링크</th><th>시작</th><th>끝</th><th>제목</th><th>연도</th><th>발화자</th><th>타입</th></tr>
-        <tr><td>https://www.youtube.com/watch?v=...</td><td>930</td><td>937</td><td>기생충</td><td>2019</td><td>기택 (송강호)</td><td>한국영화</td></tr>
-        <tr><td>https://youtu.be/...</td><td>30</td><td></td><td>도깨비</td><td>2016</td><td>김신 (공유)</td><td>한국드라마</td></tr>
+        <tr><th>링크</th><th>시작</th><th>끝</th><th>제목</th><th>연도</th><th>발화자</th><th>타입</th><th>힌트</th></tr>
+        <tr><td>https://www.youtube.com/watch?v=...</td><td>930</td><td>937</td><td>기생충</td><td>2019</td><td>기택 (송강호)</td><td>한국영화</td><td>반지하에 사는 가족 이야기</td></tr>
+        <tr><td>https://youtu.be/...</td><td>30</td><td></td><td>도깨비</td><td>2016</td><td>김신 (공유)</td><td>한국드라마</td><td></td></tr>
       </table>
     </div>
 
@@ -229,10 +235,12 @@
   // symbol into a much denser version, so it is packed as base64url instead —
   // the QR stays pure ASCII and a few versions smaller.
   function packAnswer(c) {
-    var parts = [c.title || '', c.year || '', c.speaker || ''].map(function (s) {
+    var parts = [c.title || '', c.year || '', c.speaker || '', c.hint || ''].map(function (s) {
       return String(s).replace(/\|/g, '/');   // the separator must stay unique
     });
-    if (!parts.join('')) return '';
+    // drop trailing empties so a card without a hint keeps its old QR size
+    while (parts.length && parts[parts.length - 1] === '') parts.pop();
+    if (!parts.length) return '';
     try {
       var bytes = new TextEncoder().encode(parts.join('|'));
       var bin = '';
@@ -289,6 +297,7 @@
       title: $('in-title').value.trim(),
       year: $('in-year').value.trim(),
       speaker: $('in-speaker').value.trim(),
+      hint: $('in-hint').value.trim(),
       type: $('in-type').value
     };
     // carried onto the card so the deck flags it long after the probe ran
@@ -529,6 +538,14 @@
         el.appendChild(warn);
       }
 
+      if (c.hint) {
+        var hint = document.createElement('div');
+        hint.className = 'meta card-hint';
+        hint.textContent = '💡 ' + c.hint;
+        hint.title = c.hint;
+        el.appendChild(hint);
+      }
+
       if (c.noRange) {
         var noRange = document.createElement('div');
         noRange.className = 'card-norange';
@@ -618,6 +635,7 @@
     $('in-title').value = '';
     $('in-year').value = '';
     $('in-speaker').value = '';
+    $('in-hint').value = '';
     $('in-type').value = '';
     $('preview-shell').hidden = true;
     $('preview-box').innerHTML = '';
@@ -746,7 +764,8 @@
         title: (cols[3] || '').trim(),
         year: (cols[4] || '').trim(),
         speaker: (cols[5] || '').trim(),
-        type: (cols[6] || '').trim()
+        type: (cols[6] || '').trim(),
+        hint: (cols[7] || '').trim()
       };
       if (noRange) { card.noRange = true; blank++; }
       deck.push(card);
@@ -793,10 +812,10 @@
   // open a fresh Google Sheet (sheets.new) to paste into. Times are given in
   // plain seconds so spreadsheet auto-formatting cannot mangle them.
   var TEMPLATE_ROWS = [
-    ['링크', '시작', '끝', '제목', '연도', '발화자', '타입'],
-    ['https://www.youtube.com/watch?v=Q38h5XD4RKE', '20', '28', '기생충', '2019', '기택 (송강호)', '한국영화'],
-    ['https://www.youtube.com/watch?v=d4GaQ30slGI', '30', '38', '도깨비', '2016', '김신 (공유)', '한국드라마'],
-    ['(예시 행은 지우고 채우세요)', '', '', '', '', '', '']
+    ['링크', '시작', '끝', '제목', '연도', '발화자', '타입', '힌트'],
+    ['https://www.youtube.com/watch?v=Q38h5XD4RKE', '20', '28', '기생충', '2019', '기택 (송강호)', '한국영화', '반지하에 사는 가족 이야기'],
+    ['https://www.youtube.com/watch?v=d4GaQ30slGI', '30', '38', '도깨비', '2016', '김신 (공유)', '한국드라마', ''],
+    ['(예시 행은 지우고 채우세요)', '', '', '', '', '', '', '']
   ];
 
   $('btn-template').addEventListener('click', function () {
