@@ -8,11 +8,12 @@
     <Border DockPanel.Dock="Top" Background="#222" Padding="8">
       <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <StackPanel>
+        <StackPanel Margin="0,0,12,0">
           <TextBlock x:Name="TitleText" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-          <TextBlock x:Name="MetaText" Foreground="#AAA" FontSize="11"/>
+          <TextBlock x:Name="MetaText" Foreground="#AAA" FontSize="11" Margin="0,2,0,4"/>
+          <WrapPanel x:Name="TagPanel"/>
         </StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal">
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
           <Button Content="현재 페이지 저장" Click="SavePage_Click"/>
           <Button Content="전체 저장" Click="SaveAll_Click"/>
         </StackPanel>
