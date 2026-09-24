@@ -12,9 +12,12 @@ namespace PupilDesktop.Windows;
 public partial class MainWindow : Window
 {
     private readonly HitomiClient _client = new();
+    private readonly AppStateStore _stateStore = new();
     private CancellationTokenSource? _cts;
     private List<int> _results = [];
     private int _page;
+    private bool _showingFavorites;
+    private bool _initializing = true;
     private const int PerPage = 20;
 
     public MainWindow()
@@ -22,7 +25,16 @@ public partial class MainWindow : Window
         InitializeComponent();
         SortBox.ItemsSource = new[] { "최신 추가순", "발행일순", "오늘 인기", "주간 인기", "월간 인기", "연간 인기", "랜덤" };
         SortBox.SelectedIndex = 0;
-        Loaded += async (_, _) => await RunSearchAsync();
+        StartupFavoritesCheck.IsChecked = _stateStore.State.OpenFavoritesOnStartup;
+        _initializing = false;
+
+        Loaded += async (_, _) =>
+        {
+            if (_stateStore.State.OpenFavoritesOnStartup)
+                await ShowFavoritesAsync();
+            else
+                await RunSearchAsync();
+        };
         Closed += (_, _) => { _cts?.Cancel(); _client.Dispose(); };
     }
 
@@ -38,14 +50,53 @@ public partial class MainWindow : Window
     };
 
     private async void Search_Click(object sender, RoutedEventArgs e) => await RunSearchAsync();
-    private async void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (IsLoaded) await RunSearchAsync(); }
     private async void SearchBox_KeyDown(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) await RunSearchAsync(); }
+
+    private async void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) return;
+        if (_showingFavorites) await ShowFavoritesAsync();
+        else await RunSearchAsync();
+    }
+
+    private void StartupFavoritesCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_initializing) return;
+        _stateStore.SetOpenFavoritesOnStartup(StartupFavoritesCheck.IsChecked == true);
+        StatusText.Text = StartupFavoritesCheck.IsChecked == true
+            ? "다음 실행부터 즐겨찾기 화면으로 시작합니다."
+            : "다음 실행부터 일반 목록으로 시작합니다.";
+    }
+
+    private async void Favorites_Click(object sender, RoutedEventArgs e) => await ShowFavoritesAsync();
+
+    private async Task ShowFavoritesAsync()
+    {
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+        _showingFavorites = true;
+        _page = 0;
+        _results = _stateStore.State.FavoriteGalleryIds.OrderByDescending(x => x).ToList();
+        SearchBox.Text = "";
+        try
+        {
+            SetBusy("즐겨찾기 불러오는 중…");
+            await RenderPageAsync(ct);
+            if (_results.Count == 0)
+                StatusText.Text = "즐겨찾기가 없습니다. 작품 카드의 ☆ 버튼을 눌러 추가하세요.";
+            else
+                StatusText.Text = $"★ 즐겨찾기 {_results.Count:N0}개";
+        }
+        catch (OperationCanceledException) { }
+    }
 
     private async Task RunSearchAsync()
     {
         _cts?.Cancel();
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
+        _showingFavorites = false;
         try
         {
             SetBusy("검색 중…");
@@ -67,7 +118,9 @@ public partial class MainWindow : Window
         var start = _page * PerPage;
         var ids = _results.Skip(start).Take(PerPage).ToArray();
         PageText.Text = _results.Count == 0 ? "0 / 0" : $"{_page + 1} / {Math.Max(1, (int)Math.Ceiling(_results.Count / (double)PerPage))}";
-        StatusText.Text = $"{_results.Count:N0}개 결과 · {ids.Length}개 불러오는 중…";
+        StatusText.Text = _showingFavorites
+            ? $"★ 즐겨찾기 {_results.Count:N0}개 · {ids.Length}개 불러오는 중…"
+            : $"{_results.Count:N0}개 결과 · {ids.Length}개 불러오는 중…";
 
         using var gate = new SemaphoreSlim(5);
         var tasks = ids.Select(async (id, index) =>
@@ -100,19 +153,83 @@ public partial class MainWindow : Window
             ct.ThrowIfCancellationRequested();
             if (item.card is not null) GalleryPanel.Children.Add(CreateCard(item.card, item.bmp));
         }
-        StatusText.Text = $"{_results.Count:N0}개 결과";
+
+        StatusText.Text = _showingFavorites
+            ? $"★ 즐겨찾기 {_results.Count:N0}개"
+            : $"{_results.Count:N0}개 결과";
     }
 
     private UIElement CreateCard(GalleryCard card, BitmapImage? bitmap)
     {
-        var image = new Image { Height = 280, Width = 205, Stretch = Stretch.UniformToFill, Margin = new Thickness(0, 0, 0, 7) };
+        var image = new Image
+        {
+            Height = 280,
+            Width = 205,
+            Stretch = Stretch.UniformToFill,
+            Margin = new Thickness(0, 0, 0, 7),
+            Cursor = Cursors.Hand
+        };
         if (bitmap is not null) image.Source = bitmap;
-        var title = new TextBlock { Text = card.Info.Title, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, MaxHeight = 43 };
-        var meta = new TextBlock { Text = $"#{card.Id} · {card.Info.Type} · {card.Info.Language}", Foreground = Brushes.Gray, FontSize = 11, Margin = new Thickness(0, 5, 0, 0) };
-        var stack = new StackPanel(); stack.Children.Add(image); stack.Children.Add(title); stack.Children.Add(meta);
-        var button = new Button { Width = 220, MinHeight = 355, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Top, Content = stack, Tag = card.Id };
-        button.Click += async (_, _) => await OpenGalleryAsync(card.Id);
-        return button;
+        image.MouseLeftButtonUp += async (_, _) => await OpenGalleryAsync(card.Id);
+
+        var title = new TextBlock
+        {
+            Text = card.Info.Title,
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = FontWeights.SemiBold,
+            MaxHeight = 43
+        };
+        var meta = new TextBlock
+        {
+            Text = $"#{card.Id} · {card.Info.Type} · {card.Info.Language}",
+            Foreground = Brushes.Gray,
+            FontSize = 11,
+            Margin = new Thickness(0, 5, 0, 6)
+        };
+
+        var openButton = new Button { Content = "열기", MinWidth = 130, Margin = new Thickness(0, 0, 6, 0) };
+        openButton.Click += async (_, _) => await OpenGalleryAsync(card.Id);
+
+        var favoriteButton = new Button
+        {
+            Content = _stateStore.IsFavorite(card.Id) ? "★" : "☆",
+            FontSize = 18,
+            Width = 46,
+            ToolTip = _stateStore.IsFavorite(card.Id) ? "즐겨찾기 해제" : "즐겨찾기 추가"
+        };
+        favoriteButton.Click += async (_, _) =>
+        {
+            _stateStore.ToggleFavorite(card.Id);
+            var isFavorite = _stateStore.IsFavorite(card.Id);
+            favoriteButton.Content = isFavorite ? "★" : "☆";
+            favoriteButton.ToolTip = isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가";
+            StatusText.Text = isFavorite ? $"#{card.Id} 즐겨찾기에 추가했습니다." : $"#{card.Id} 즐겨찾기에서 제거했습니다.";
+
+            if (_showingFavorites && !isFavorite)
+                await ShowFavoritesAsync();
+        };
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+        buttons.Children.Add(openButton);
+        buttons.Children.Add(favoriteButton);
+
+        var stack = new StackPanel();
+        stack.Children.Add(image);
+        stack.Children.Add(title);
+        stack.Children.Add(meta);
+        stack.Children.Add(buttons);
+
+        return new Border
+        {
+            Width = 220,
+            MinHeight = 385,
+            Margin = new Thickness(4),
+            Padding = new Thickness(6),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(32, 0, 0, 0)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Child = stack
+        };
     }
 
     private async Task OpenGalleryAsync(int id)
@@ -150,5 +267,10 @@ public partial class MainWindow : Window
         try { await RenderPageAsync(_cts.Token); } catch (OperationCanceledException) { }
     }
 
-    private void SetBusy(string message) { StatusText.Text = message; GalleryPanel.Children.Clear(); PageText.Text = ""; }
+    private void SetBusy(string message)
+    {
+        StatusText.Text = message;
+        GalleryPanel.Children.Clear();
+        PageText.Text = "";
+    }
 }
