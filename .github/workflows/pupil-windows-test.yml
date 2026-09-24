@@ -31,42 +31,44 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force pupil-native/PupilDesktop.SmokeTest | Out-Null
-          @'
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\PupilDesktop\PupilDesktop.csproj" />
-  </ItemGroup>
-</Project>
-'@ | Set-Content -Encoding UTF8 pupil-native/PupilDesktop.SmokeTest/PupilDesktop.SmokeTest.csproj
+          $csproj = @"
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>Exe</OutputType>
+              <TargetFramework>net8.0-windows</TargetFramework>
+              <EnableWindowsTargeting>true</EnableWindowsTargeting>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <Nullable>enable</Nullable>
+            </PropertyGroup>
+            <ItemGroup>
+              <ProjectReference Include="..\PupilDesktop\PupilDesktop.csproj" />
+            </ItemGroup>
+          </Project>
+          "@
+          $csproj | Set-Content -Encoding UTF8 pupil-native/PupilDesktop.SmokeTest/PupilDesktop.SmokeTest.csproj
 
-          @'
-using PupilDesktop.Core;
-using PupilDesktop.Models;
+          $program = @'
+          using PupilDesktop.Core;
+          using PupilDesktop.Models;
 
-Console.WriteLine("Pupil Desktop smoke test starting...");
-using var client = new HitomiClient();
-var ids = await client.SearchAsync("", SortMode.DateAdded);
-if (ids.Count == 0) throw new Exception("Latest gallery search returned zero results.");
-var galleryId = ids[0];
-Console.WriteLine($"Latest gallery ID: {galleryId}");
-var info = await client.GetGalleryInfoAsync(galleryId);
-if (info.Files.Count == 0) throw new Exception($"Gallery {galleryId} has no files.");
-Console.WriteLine($"Title: {info.Title}");
-Console.WriteLine($"Pages: {info.Files.Count}");
-var urls = await client.GetReaderImageUrlsAsync(info);
-if (urls.Count == 0) throw new Exception("Reader URL generation returned zero URLs.");
-var bytes = await client.DownloadBytesAsync(urls[0]);
-if (bytes.Length < 1024) throw new Exception($"First image download was unexpectedly small: {bytes.Length} bytes.");
-Console.WriteLine($"Downloaded first image: {bytes.Length:N0} bytes");
-Console.WriteLine("NETWORK_SMOKE_OK");
-'@ | Set-Content -Encoding UTF8 pupil-native/PupilDesktop.SmokeTest/Program.cs
+          Console.WriteLine("Pupil Desktop smoke test starting...");
+          using var client = new HitomiClient();
+          var ids = await client.SearchAsync("", SortMode.DateAdded);
+          if (ids.Count == 0) throw new Exception("Latest gallery search returned zero results.");
+          var galleryId = ids[0];
+          Console.WriteLine($"Latest gallery ID: {galleryId}");
+          var info = await client.GetGalleryInfoAsync(galleryId);
+          if (info.Files.Count == 0) throw new Exception($"Gallery {galleryId} has no files.");
+          Console.WriteLine($"Title: {info.Title}");
+          Console.WriteLine($"Pages: {info.Files.Count}");
+          var urls = await client.GetReaderImageUrlsAsync(info);
+          if (urls.Count == 0) throw new Exception("Reader URL generation returned zero URLs.");
+          var bytes = await client.DownloadBytesAsync(urls[0]);
+          if (bytes.Length < 1024) throw new Exception($"First image download was unexpectedly small: {bytes.Length} bytes.");
+          Console.WriteLine($"Downloaded first image: {bytes.Length:N0} bytes");
+          Console.WriteLine("NETWORK_SMOKE_OK");
+          '@
+          $program | Set-Content -Encoding UTF8 pupil-native/PupilDesktop.SmokeTest/Program.cs
 
       - name: Run Hitomi network smoke test
         shell: pwsh
