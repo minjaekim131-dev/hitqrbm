@@ -61,6 +61,24 @@ jobs:
           if (info.Files.Count == 0) throw new Exception($"Gallery {galleryId} has no files.");
           Console.WriteLine($"Title: {info.Title}");
           Console.WriteLine($"Pages: {info.Files.Count}");
+
+          var tagSearchOk = false;
+          foreach (var tag in (info.Tags ?? []).Where(t => !string.IsNullOrWhiteSpace(t.Tag)).Take(12))
+          {
+              var prefix = !string.IsNullOrWhiteSpace(tag.Female) ? "female"
+                         : !string.IsNullOrWhiteSpace(tag.Male) ? "male"
+                         : "tag";
+              var query = $"{prefix}:{tag.Tag.Replace(' ', '_')}";
+              var tagIds = await client.SearchAsync(query, SortMode.DateAdded);
+              if (tagIds.Count > 0)
+              {
+                  Console.WriteLine($"Tag search OK: {query} -> {tagIds.Count:N0} results");
+                  tagSearchOk = true;
+                  break;
+              }
+          }
+          if (!tagSearchOk) throw new Exception("No metadata tag produced a valid tag-search result.");
+
           var urls = await client.GetReaderWebpImageUrlsAsync(info);
           if (urls.Count == 0) throw new Exception("Reader URL generation returned zero URLs.");
           Console.WriteLine($"First image URL: {urls[0]}");
