@@ -3,6 +3,7 @@ using PupilDesktop.Core;
 using PupilDesktop.Models;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 
 namespace PupilDesktop.Windows;
@@ -17,6 +18,8 @@ public partial class ReaderWindow : Window
     private byte[]? _currentBytes;
     private CancellationTokenSource? _pageCts;
 
+    public event Func<string, Task>? SearchRequested;
+
     public ReaderWindow(HitomiClient client, int galleryId, GalleryInfo info)
     {
         InitializeComponent();
@@ -24,12 +27,72 @@ public partial class ReaderWindow : Window
         Title = $"Pupil Desktop - {info.Title}";
         TitleText.Text = info.Title;
         MetaText.Text = $"#{galleryId} · {info.Type} · {info.Language} · {info.Files.Count} pages";
+        BuildTagPanel();
+
         Loaded += async (_, _) =>
         {
             _urls = await _client.GetReaderWebpImageUrlsAsync(_info);
             await LoadPageAsync(0);
         };
         Closed += (_, _) => _pageCts?.Cancel();
+    }
+
+    private void BuildTagPanel()
+    {
+        var items = EnumerateSearchTags(_info).Take(18).ToList();
+        foreach (var item in items)
+        {
+            var button = new Button
+            {
+                Content = item.Label,
+                FontSize = 10,
+                Padding = new Thickness(5, 1, 5, 1),
+                Margin = new Thickness(0, 0, 4, 4),
+                ToolTip = $"{item.Query} 검색"
+            };
+            button.Click += async (_, _) =>
+            {
+                if (SearchRequested is not null)
+                {
+                    await SearchRequested(item.Query);
+                    Close();
+                }
+            };
+            TagPanel.Children.Add(button);
+        }
+
+        var total = EnumerateSearchTags(_info).Count();
+        if (total > items.Count)
+        {
+            TagPanel.Children.Add(new TextBlock
+            {
+                Text = $"+{total - items.Count}",
+                Foreground = System.Windows.Media.Brushes.Gray,
+                FontSize = 10,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(3, 0, 0, 4)
+            });
+        }
+    }
+
+    private static IEnumerable<(string Label, string Query)> EnumerateSearchTags(GalleryInfo info)
+    {
+        foreach (var parody in info.Parodys ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(parody.ParodyName))
+                yield return ($"작품: {parody.ParodyName}", $"series:{parody.ParodyName}");
+        }
+
+        foreach (var tag in info.Tags ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(tag.Tag)) continue;
+            if (!string.IsNullOrWhiteSpace(tag.Female))
+                yield return ($"♀ {tag.Tag}", $"female:{tag.Tag}");
+            else if (!string.IsNullOrWhiteSpace(tag.Male))
+                yield return ($"♂ {tag.Tag}", $"male:{tag.Tag}");
+            else
+                yield return (tag.Tag, $"tag:{tag.Tag}");
+        }
     }
 
     private async Task LoadPageAsync(int page)
