@@ -118,7 +118,8 @@ public partial class MainWindow : Window
         {
             SetBusy("검색 중…");
             _page = 0;
-            _results = await _client.SearchAsync(SearchBox.Text, CurrentSort, ct);
+            var query = NormalizeStructuredSearch(SearchBox.Text);
+            _results = await _client.SearchAsync(query, CurrentSort, ct);
             await RenderPageAsync(ct);
         }
         catch (OperationCanceledException) { }
@@ -131,10 +132,32 @@ public partial class MainWindow : Window
 
     private async Task SearchFromTagAsync(string query)
     {
-        SearchBox.Text = query;
+        SearchBox.Text = NormalizeStructuredSearch(query);
         _showingFavorites = false;
         await RunSearchAsync();
         Activate();
+    }
+
+    private static string NormalizeStructuredSearch(string query)
+    {
+        var text = query.Trim();
+        if (string.IsNullOrEmpty(text)) return text;
+
+        var negative = text.StartsWith('-');
+        var body = negative ? text[1..] : text;
+        var idx = body.IndexOf(':');
+        if (idx <= 0) return text;
+
+        var prefix = body[..idx].Trim().ToLowerInvariant();
+        var known = prefix is "male" or "female" or "language" or "artist" or "group" or "parody" or "series" or "character" or "tag";
+        if (!known) return text;
+
+        if (prefix == "series") prefix = "parody";
+        var value = body[(idx + 1)..].Trim();
+        if (string.IsNullOrEmpty(value)) return text;
+
+        var normalizedValue = string.Join("_", value.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return $"{(negative ? "-" : "")}{prefix}:{normalizedValue}";
     }
 
     private async Task RenderPageAsync(CancellationToken ct)
@@ -281,7 +304,7 @@ public partial class MainWindow : Window
         foreach (var parody in info.Parodys ?? [])
         {
             if (!string.IsNullOrWhiteSpace(parody.ParodyName))
-                yield return ($"작품: {parody.ParodyName}", $"series:{parody.ParodyName}");
+                yield return ($"작품: {parody.ParodyName}", $"parody:{parody.ParodyName}");
         }
 
         foreach (var artist in info.Artists ?? [])
