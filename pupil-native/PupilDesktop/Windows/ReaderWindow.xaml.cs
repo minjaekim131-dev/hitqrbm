@@ -26,7 +26,7 @@ public partial class ReaderWindow : Window
         MetaText.Text = $"#{galleryId} · {info.Type} · {info.Language} · {info.Files.Count} pages";
         Loaded += async (_, _) =>
         {
-            _urls = await _client.GetReaderImageUrlsAsync(_info);
+            _urls = await _client.GetReaderWebpImageUrlsAsync(_info);
             await LoadPageAsync(0);
         };
         Closed += (_, _) => _pageCts?.Cancel();
@@ -77,8 +77,7 @@ public partial class ReaderWindow : Window
     private void SavePage_Click(object sender, RoutedEventArgs e)
     {
         if (_currentBytes is null || _page >= _info.Files.Count) return;
-        var ext = Path.GetExtension(_info.Files[_page].Name);
-        var dialog = new SaveFileDialog { FileName = $"{_galleryId}_{_page + 1:000}{ext}", Filter = "Image|*" + ext + "|All files|*.*" };
+        var dialog = new SaveFileDialog { FileName = $"{_galleryId}_{_page + 1:000}.webp", Filter = "WebP image|*.webp|All files|*.*" };
         if (dialog.ShowDialog(this) == true) File.WriteAllBytes(dialog.FileName, _currentBytes);
     }
 
@@ -95,8 +94,7 @@ public partial class ReaderWindow : Window
             {
                 LoadingText.Text = $"저장 중… {i + 1}/{_urls.Count}";
                 var bytes = await _client.DownloadBytesAsync(_urls[i]);
-                var ext = Path.GetExtension(_info.Files[i].Name);
-                await File.WriteAllBytesAsync(Path.Combine(folder, $"{i + 1:000}{ext}"), bytes);
+                await File.WriteAllBytesAsync(Path.Combine(folder, $"{i + 1:000}.webp"), bytes);
             }
             LoadingText.Text = "저장 완료";
             await Task.Delay(800);
