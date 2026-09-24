@@ -112,6 +112,14 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task SearchFromTagAsync(string query)
+    {
+        SearchBox.Text = query;
+        _showingFavorites = false;
+        await RunSearchAsync();
+        Activate();
+    }
+
     private async Task RenderPageAsync(CancellationToken ct)
     {
         GalleryPanel.Children.Clear();
@@ -163,7 +171,7 @@ public partial class MainWindow : Window
     {
         var image = new Image
         {
-            Height = 280,
+            Height = 260,
             Width = 205,
             Stretch = Stretch.UniformToFill,
             Margin = new Thickness(0, 0, 0, 7),
@@ -184,8 +192,12 @@ public partial class MainWindow : Window
             Text = $"#{card.Id} · {card.Info.Type} · {card.Info.Language}",
             Foreground = Brushes.Gray,
             FontSize = 11,
-            Margin = new Thickness(0, 5, 0, 6)
+            Margin = new Thickness(0, 5, 0, 4)
         };
+
+        var tagPanel = new WrapPanel { Margin = new Thickness(0, 1, 0, 6) };
+        foreach (var item in EnumerateSearchTags(card.Info).Take(6))
+            tagPanel.Children.Add(CreateTagChip(item.Label, item.Query));
 
         var openButton = new Button { Content = "열기", MinWidth = 130, Margin = new Thickness(0, 0, 6, 0) };
         openButton.Click += async (_, _) => await OpenGalleryAsync(card.Id);
@@ -217,12 +229,13 @@ public partial class MainWindow : Window
         stack.Children.Add(image);
         stack.Children.Add(title);
         stack.Children.Add(meta);
+        if (tagPanel.Children.Count > 0) stack.Children.Add(tagPanel);
         stack.Children.Add(buttons);
 
         return new Border
         {
             Width = 220,
-            MinHeight = 385,
+            MinHeight = 430,
             Margin = new Thickness(4),
             Padding = new Thickness(6),
             BorderBrush = new SolidColorBrush(Color.FromArgb(32, 0, 0, 0)),
@@ -232,6 +245,40 @@ public partial class MainWindow : Window
         };
     }
 
+    private Button CreateTagChip(string label, string query)
+    {
+        var button = new Button
+        {
+            Content = label,
+            FontSize = 10,
+            Padding = new Thickness(5, 1, 5, 1),
+            Margin = new Thickness(0, 0, 4, 4),
+            ToolTip = $"{query} 검색"
+        };
+        button.Click += async (_, _) => await SearchFromTagAsync(query);
+        return button;
+    }
+
+    private static IEnumerable<(string Label, string Query)> EnumerateSearchTags(GalleryInfo info)
+    {
+        foreach (var parody in info.Parodys ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(parody.ParodyName))
+                yield return ($"작품: {parody.ParodyName}", $"series:{parody.ParodyName}");
+        }
+
+        foreach (var tag in info.Tags ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(tag.Tag)) continue;
+            if (!string.IsNullOrWhiteSpace(tag.Female))
+                yield return ($"♀ {tag.Tag}", $"female:{tag.Tag}");
+            else if (!string.IsNullOrWhiteSpace(tag.Male))
+                yield return ($"♂ {tag.Tag}", $"male:{tag.Tag}");
+            else
+                yield return (tag.Tag, $"tag:{tag.Tag}");
+        }
+    }
+
     private async Task OpenGalleryAsync(int id)
     {
         try
@@ -239,6 +286,10 @@ public partial class MainWindow : Window
             StatusText.Text = $"#{id} 여는 중…";
             var info = await _client.GetGalleryInfoAsync(id);
             var reader = new ReaderWindow(_client, id, info) { Owner = this };
+            reader.SearchRequested += async query =>
+            {
+                await SearchFromTagAsync(query);
+            };
             reader.Show();
             StatusText.Text = $"#{id} 열림";
         }
