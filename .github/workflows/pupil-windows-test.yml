@@ -61,8 +61,9 @@ jobs:
           if (info.Files.Count == 0) throw new Exception($"Gallery {galleryId} has no files.");
           Console.WriteLine($"Title: {info.Title}");
           Console.WriteLine($"Pages: {info.Files.Count}");
-          var urls = await client.GetReaderImageUrlsAsync(info);
+          var urls = await client.GetReaderWebpImageUrlsAsync(info);
           if (urls.Count == 0) throw new Exception("Reader URL generation returned zero URLs.");
+          Console.WriteLine($"First image URL: {urls[0]}");
           var bytes = await client.DownloadBytesAsync(urls[0]);
           if (bytes.Length < 1024) throw new Exception($"First image download was unexpectedly small: {bytes.Length} bytes.");
           Console.WriteLine($"Downloaded first image: {bytes.Length:N0} bytes");
