@@ -39,7 +39,8 @@ public partial class ReaderWindow : Window
 
     private void BuildTagPanel()
     {
-        var items = EnumerateSearchTags(_info).Take(18).ToList();
+        var allItems = EnumerateSearchTags(_info).ToList();
+        var items = allItems.Take(28).ToList();
         foreach (var item in items)
         {
             var button = new Button
@@ -61,12 +62,11 @@ public partial class ReaderWindow : Window
             TagPanel.Children.Add(button);
         }
 
-        var total = EnumerateSearchTags(_info).Count();
-        if (total > items.Count)
+        if (allItems.Count > items.Count)
         {
             TagPanel.Children.Add(new TextBlock
             {
-                Text = $"+{total - items.Count}",
+                Text = $"+{allItems.Count - items.Count}",
                 Foreground = System.Windows.Media.Brushes.Gray,
                 FontSize = 10,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -81,6 +81,24 @@ public partial class ReaderWindow : Window
         {
             if (!string.IsNullOrWhiteSpace(parody.ParodyName))
                 yield return ($"작품: {parody.ParodyName}", $"series:{parody.ParodyName}");
+        }
+
+        foreach (var artist in info.Artists ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(artist.ArtistName))
+                yield return ($"작가: {artist.ArtistName}", $"artist:{artist.ArtistName}");
+        }
+
+        foreach (var character in info.Characters ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(character.CharacterName))
+                yield return ($"캐릭터: {character.CharacterName}", $"character:{character.CharacterName}");
+        }
+
+        foreach (var group in info.Groups ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(group.GroupName))
+                yield return ($"그룹: {group.GroupName}", $"group:{group.GroupName}");
         }
 
         foreach (var tag in info.Tags ?? [])
