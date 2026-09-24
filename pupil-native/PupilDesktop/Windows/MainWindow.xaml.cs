@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private int _page;
     private bool _showingFavorites;
     private bool _initializing = true;
+    private string _searchBeforeFavorites = "";
     private const int PerPage = 20;
 
     public MainWindow()
@@ -68,7 +69,19 @@ public partial class MainWindow : Window
             : "다음 실행부터 일반 목록으로 시작합니다.";
     }
 
-    private async void Favorites_Click(object sender, RoutedEventArgs e) => await ShowFavoritesAsync();
+    private async void Favorites_Click(object sender, RoutedEventArgs e)
+    {
+        if (_showingFavorites)
+        {
+            SearchBox.Text = _searchBeforeFavorites;
+            await RunSearchAsync();
+        }
+        else
+        {
+            _searchBeforeFavorites = SearchBox.Text;
+            await ShowFavoritesAsync();
+        }
+    }
 
     private async Task ShowFavoritesAsync()
     {
@@ -76,6 +89,8 @@ public partial class MainWindow : Window
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         _showingFavorites = true;
+        FavoritesButton.Content = "← 일반 목록";
+        FavoritesButton.ToolTip = "즐겨찾기 모드 종료";
         _page = 0;
         _results = _stateStore.State.FavoriteGalleryIds.OrderByDescending(x => x).ToList();
         SearchBox.Text = "";
@@ -97,6 +112,8 @@ public partial class MainWindow : Window
         _cts = new CancellationTokenSource();
         var ct = _cts.Token;
         _showingFavorites = false;
+        FavoritesButton.Content = "★ 즐겨찾기";
+        FavoritesButton.ToolTip = "즐겨찾기 보기";
         try
         {
             SetBusy("검색 중…");
