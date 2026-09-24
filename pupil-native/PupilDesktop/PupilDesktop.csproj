@@ -10,4 +10,7 @@
     <AssemblyName>PupilDesktop</AssemblyName>
     <RootNamespace>PupilDesktop</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.IO" />
+  </ItemGroup>
 </Project>
