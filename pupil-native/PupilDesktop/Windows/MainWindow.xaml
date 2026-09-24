@@ -11,12 +11,17 @@
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
         <TextBox x:Name="SearchBox" Grid.Column="0" FontSize="15" KeyDown="SearchBox_KeyDown"
                  ToolTip="예: artist:name  female:tag  language:korean  -male:tag"/>
         <Button Grid.Column="1" Content="검색" Click="Search_Click"/>
         <ComboBox x:Name="SortBox" Grid.Column="2" Width="150" SelectionChanged="SortBox_SelectionChanged"/>
-        <Button Grid.Column="3" Content="ID로 열기" Click="OpenId_Click"/>
+        <Button Grid.Column="3" Content="★ 즐겨찾기" Click="Favorites_Click"/>
+        <CheckBox x:Name="StartupFavoritesCheck" Grid.Column="4" Margin="10,0" VerticalAlignment="Center"
+                  Content="시작 시 즐겨찾기" Checked="StartupFavoritesCheck_Changed" Unchecked="StartupFavoritesCheck_Changed"/>
+        <Button Grid.Column="5" Content="ID로 열기" Click="OpenId_Click"/>
       </Grid>
     </Border>
 
