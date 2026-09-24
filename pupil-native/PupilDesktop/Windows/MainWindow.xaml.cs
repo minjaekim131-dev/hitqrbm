@@ -171,7 +171,7 @@ public partial class MainWindow : Window
     {
         var image = new Image
         {
-            Height = 260,
+            Height = 250,
             Width = 205,
             Stretch = Stretch.UniformToFill,
             Margin = new Thickness(0, 0, 0, 7),
@@ -196,7 +196,7 @@ public partial class MainWindow : Window
         };
 
         var tagPanel = new WrapPanel { Margin = new Thickness(0, 1, 0, 6) };
-        foreach (var item in EnumerateSearchTags(card.Info).Take(6))
+        foreach (var item in EnumerateSearchTags(card.Info).Take(10))
             tagPanel.Children.Add(CreateTagChip(item.Label, item.Query));
 
         var openButton = new Button { Content = "열기", MinWidth = 130, Margin = new Thickness(0, 0, 6, 0) };
@@ -235,7 +235,7 @@ public partial class MainWindow : Window
         return new Border
         {
             Width = 220,
-            MinHeight = 430,
+            MinHeight = 455,
             Margin = new Thickness(4),
             Padding = new Thickness(6),
             BorderBrush = new SolidColorBrush(Color.FromArgb(32, 0, 0, 0)),
@@ -265,6 +265,24 @@ public partial class MainWindow : Window
         {
             if (!string.IsNullOrWhiteSpace(parody.ParodyName))
                 yield return ($"작품: {parody.ParodyName}", $"series:{parody.ParodyName}");
+        }
+
+        foreach (var artist in info.Artists ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(artist.ArtistName))
+                yield return ($"작가: {artist.ArtistName}", $"artist:{artist.ArtistName}");
+        }
+
+        foreach (var character in info.Characters ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(character.CharacterName))
+                yield return ($"캐릭터: {character.CharacterName}", $"character:{character.CharacterName}");
+        }
+
+        foreach (var group in info.Groups ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(group.GroupName))
+                yield return ($"그룹: {group.GroupName}", $"group:{group.GroupName}");
         }
 
         foreach (var tag in info.Tags ?? [])
