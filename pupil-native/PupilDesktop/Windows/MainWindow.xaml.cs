@@ -21,6 +21,11 @@ public partial class MainWindow : Window
     private string _searchBeforeFavorites = "";
     private const int PerPage = 20;
 
+    private readonly Dictionary<int, int> _pageStartIndices = new() { [0] = 0 };
+    private readonly Dictionary<int, (GalleryCard Card, BitmapImage? Bitmap)> _cardCache = [];
+    private readonly HashSet<int> _failedCardIds = [];
+    private bool _currentPageHasNext;
+
     private static readonly (string Label, string Slug)[] LanguageOptions =
     [
         ("모든 언어", ""),
@@ -60,7 +65,13 @@ public partial class MainWindow : Window
             else
                 await RunSearchAsync();
         };
-        Closed += (_, _) => { _cts?.Cancel(); _client.Dispose(); };
+        Closed += (_, _) =>
+        {
+            _cts?.Cancel();
+            _includeSuggestCts?.Cancel();
+            _excludeSuggestCts?.Cancel();
+            _client.Dispose();
+        };
     }
 
     private SortMode CurrentSort => SortBox.SelectedIndex switch
@@ -79,24 +90,22 @@ public partial class MainWindow : Window
         : "";
 
     private async void Search_Click(object sender, RoutedEventArgs e) => await RunSearchAsync();
-    private async void SearchBox_KeyDown(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) await RunSearchAsync(); }
+
+    private async void SearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) await RunSearchAsync();
+    }
 
     private async void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
-        if (_showingFavorites) await ShowFavoritesAsync();
-        else await RunSearchAsync();
+        await RefreshCurrentViewAsync();
     }
 
     private async void Filter_Changed(object sender, RoutedEventArgs e)
     {
         if (_initializing || !IsLoaded) return;
         await RefreshCurrentViewAsync();
-    }
-
-    private async void FilterBox_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter) await RefreshCurrentViewAsync();
     }
 
     private async void ApplyFilters_Click(object sender, RoutedEventArgs e) => await RefreshCurrentViewAsync();
@@ -113,7 +122,12 @@ public partial class MainWindow : Window
         LanguageBox.SelectedIndex = 0;
         IncludeTagsBox.Text = "";
         ExcludeTagsBox.Text = "";
+        IncludeTagInput.Text = "";
+        ExcludeTagInput.Text = "";
+        IncludeSuggestionList.Visibility = Visibility.Collapsed;
+        ExcludeSuggestionList.Visibility = Visibility.Collapsed;
         _initializing = false;
+        RenderFilterTagChips();
         await RefreshCurrentViewAsync();
     }
 
@@ -146,6 +160,16 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ResetPagingState()
+    {
+        _page = 0;
+        _pageStartIndices.Clear();
+        _pageStartIndices[0] = 0;
+        _cardCache.Clear();
+        _failedCardIds.Clear();
+        _currentPageHasNext = false;
+    }
+
     private async Task ShowFavoritesAsync()
     {
         _cts?.Cancel();
@@ -154,20 +178,19 @@ public partial class MainWindow : Window
         _showingFavorites = true;
         FavoritesButton.Content = "← 일반 목록";
         FavoritesButton.ToolTip = "즐겨찾기 모드 종료";
-        _page = 0;
         var allFavoriteIds = _stateStore.State.FavoriteGalleryIds.OrderByDescending(x => x).ToList();
         SearchBox.Text = "";
+
         try
         {
             SetBusy("즐겨찾기 필터 적용 중…");
             _results = await ApplyUiFiltersAsync(allFavoriteIds, ct);
+            ResetPagingState();
             await RenderPageAsync(ct);
             if (allFavoriteIds.Count == 0)
                 StatusText.Text = "즐겨찾기가 없습니다. 작품 카드의 ☆ 버튼을 눌러 추가하세요.";
             else if (_results.Count == 0)
                 StatusText.Text = $"★ 즐겨찾기 {allFavoriteIds.Count:N0}개 중 현재 필터에 맞는 작품이 없습니다.";
-            else
-                StatusText.Text = $"★ 즐겨찾기 {_results.Count:N0}개 표시 / 전체 {allFavoriteIds.Count:N0}개";
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -185,13 +208,14 @@ public partial class MainWindow : Window
         _showingFavorites = false;
         FavoritesButton.Content = "★ 즐겨찾기";
         FavoritesButton.ToolTip = "즐겨찾기 보기";
+
         try
         {
             SetBusy("검색 및 필터 적용 중…");
-            _page = 0;
             var query = NormalizeStructuredSearch(SearchBox.Text);
             var baseResults = await _client.SearchAsync(query, CurrentSort, ct);
             _results = await ApplyUiFiltersAsync(baseResults, ct);
+            ResetPagingState();
             await RenderPageAsync(ct);
         }
         catch (OperationCanceledException) { }
@@ -205,10 +229,8 @@ public partial class MainWindow : Window
     private async Task<List<int>> ApplyUiFiltersAsync(IEnumerable<int> source, CancellationToken ct)
     {
         var result = source.ToList();
-
         var selectedTypes = GetSelectedTypes();
-        if (selectedTypes.Count == 0)
-            return [];
+        if (selectedTypes.Count == 0) return [];
 
         if (selectedTypes.Count < 6)
         {
@@ -297,51 +319,111 @@ public partial class MainWindow : Window
         return $"{(negative ? "-" : "")}{prefix}:{normalizedValue}";
     }
 
-    private async Task RenderPageAsync(CancellationToken ct)
+    private async Task<(GalleryCard? Card, BitmapImage? Bitmap, string? Error)> LoadCardForDisplayAsync(int id, CancellationToken ct)
     {
-        GalleryPanel.Children.Clear();
-        var start = _page * PerPage;
-        var ids = _results.Skip(start).Take(PerPage).ToArray();
-        PageText.Text = _results.Count == 0 ? "0 / 0" : $"{_page + 1} / {Math.Max(1, (int)Math.Ceiling(_results.Count / (double)PerPage))}";
-        StatusText.Text = _showingFavorites
-            ? $"★ 즐겨찾기 · 필터 결과 {_results.Count:N0}개 · {ids.Length}개 불러오는 중…"
-            : $"필터 결과 {_results.Count:N0}개 · {ids.Length}개 불러오는 중…";
+        if (_cardCache.TryGetValue(id, out var cached))
+            return (cached.Card, cached.Bitmap, null);
+        if (_failedCardIds.Contains(id))
+            return (null, null, "이 검색에서 이미 로딩 실패한 작품");
 
-        using var gate = new SemaphoreSlim(5);
-        var tasks = ids.Select(async (id, index) =>
+        string? lastError = null;
+        for (var attempt = 1; attempt <= 2; attempt++)
         {
-            await gate.WaitAsync(ct);
             try
             {
                 var card = await _client.GetGalleryCardAsync(id, ct);
                 BitmapImage? bmp = null;
+
                 foreach (var url in new[] { card.CoverUrl, card.FallbackCoverUrl })
                 {
-                    try
+                    for (var imageAttempt = 1; imageAttempt <= 2; imageAttempt++)
                     {
-                        var imageBytes = await _client.DownloadBytesAsync(url, ct);
-                        bmp = ImageHelpers.ToBitmap(imageBytes);
-                        break;
+                        try
+                        {
+                            var bytes = await _client.DownloadBytesAsync(url, ct);
+                            bmp = ImageHelpers.ToBitmap(bytes);
+                            break;
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch
+                        {
+                            if (imageAttempt == 1) await Task.Delay(120, ct);
+                        }
                     }
-                    catch (OperationCanceledException) { throw; }
-                    catch { }
+                    if (bmp is not null) break;
                 }
-                return (index, card, bmp, error: (string?)null);
-            }
-            catch (Exception ex) { return (index, card: (GalleryCard?)null, bmp: (BitmapImage?)null, error: ex.Message); }
-            finally { gate.Release(); }
-        }).ToArray();
 
-        foreach (var task in tasks)
-        {
-            var item = await task;
-            ct.ThrowIfCancellationRequested();
-            if (item.card is not null) GalleryPanel.Children.Add(CreateCard(item.card, item.bmp));
+                _cardCache[id] = (card, bmp);
+                return (card, bmp, null);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                lastError = ex.Message;
+                if (attempt == 1) await Task.Delay(250, ct);
+            }
         }
 
+        _failedCardIds.Add(id);
+        return (null, null, lastError);
+    }
+
+    private async Task RenderPageAsync(CancellationToken ct)
+    {
+        GalleryPanel.Children.Clear();
+        if (_results.Count == 0)
+        {
+            PageText.Text = "0 / 0";
+            StatusText.Text = _showingFavorites ? "★ 즐겨찾기 · 필터 결과 0개" : "필터 결과 0개";
+            _currentPageHasNext = false;
+            return;
+        }
+
+        if (!_pageStartIndices.TryGetValue(_page, out var cursor))
+            cursor = Math.Min(_page * PerPage, _results.Count);
+
+        var display = new List<(GalleryCard Card, BitmapImage? Bitmap)>();
+        var skipped = 0;
         StatusText.Text = _showingFavorites
-            ? $"★ 즐겨찾기 · 필터 결과 {_results.Count:N0}개"
-            : $"필터 결과 {_results.Count:N0}개";
+            ? $"★ 즐겨찾기 · {_page + 1}페이지 불러오는 중…"
+            : $"{_page + 1}페이지 불러오는 중…";
+
+        while (display.Count < PerPage && cursor < _results.Count)
+        {
+            ct.ThrowIfCancellationRequested();
+            var need = PerPage - display.Count;
+            var batchIds = _results.Skip(cursor).Take(need).ToArray();
+            cursor += batchIds.Length;
+
+            var loaded = await Task.WhenAll(batchIds.Select(async id =>
+            {
+                var item = await LoadCardForDisplayAsync(id, ct);
+                return (Id: id, item.Card, item.Bitmap, item.Error);
+            }));
+
+            foreach (var item in loaded)
+            {
+                if (item.Card is not null)
+                    display.Add((item.Card, item.Bitmap));
+                else
+                    skipped++;
+            }
+        }
+
+        foreach (var item in display)
+            GalleryPanel.Children.Add(CreateCard(item.Card, item.Bitmap));
+
+        _currentPageHasNext = cursor < _results.Count;
+        if (_currentPageHasNext)
+            _pageStartIndices[_page + 1] = cursor;
+        else
+            _pageStartIndices.Remove(_page + 1);
+
+        PageText.Text = $"{_page + 1}페이지 · {display.Count}개";
+        var skippedText = skipped > 0 ? $" · 로딩 실패 {skipped}개 건너뜀" : "";
+        StatusText.Text = _showingFavorites
+            ? $"★ 즐겨찾기 · 필터 결과 {_results.Count:N0}개 · {display.Count}개 표시{skippedText}"
+            : $"필터 결과 {_results.Count:N0}개 · {display.Count}개 표시{skippedText}";
     }
 
     private UIElement CreateCard(GalleryCard card, BitmapImage? bitmap)
@@ -393,7 +475,6 @@ public partial class MainWindow : Window
             favoriteButton.Content = isFavorite ? "★" : "☆";
             favoriteButton.ToolTip = isFavorite ? "즐겨찾기 해제" : "즐겨찾기 추가";
             StatusText.Text = isFavorite ? $"#{card.Id} 즐겨찾기에 추가했습니다." : $"#{card.Id} 즐겨찾기에서 제거했습니다.";
-
             if (_showingFavorites && !isFavorite)
                 await ShowFavoritesAsync();
         };
@@ -439,28 +520,20 @@ public partial class MainWindow : Window
     private static IEnumerable<(string Label, string Query)> EnumerateSearchTags(GalleryInfo info)
     {
         foreach (var parody in info.Parodys ?? [])
-        {
             if (!string.IsNullOrWhiteSpace(parody.ParodyName))
                 yield return ($"작품: {parody.ParodyName}", $"parody:{parody.ParodyName}");
-        }
 
         foreach (var artist in info.Artists ?? [])
-        {
             if (!string.IsNullOrWhiteSpace(artist.ArtistName))
                 yield return ($"작가: {artist.ArtistName}", $"artist:{artist.ArtistName}");
-        }
 
         foreach (var character in info.Characters ?? [])
-        {
             if (!string.IsNullOrWhiteSpace(character.CharacterName))
                 yield return ($"캐릭터: {character.CharacterName}", $"character:{character.CharacterName}");
-        }
 
         foreach (var group in info.Groups ?? [])
-        {
             if (!string.IsNullOrWhiteSpace(group.GroupName))
                 yield return ($"그룹: {group.GroupName}", $"group:{group.GroupName}");
-        }
 
         foreach (var tag in info.Tags ?? [])
         {
@@ -481,14 +554,14 @@ public partial class MainWindow : Window
             StatusText.Text = $"#{id} 여는 중…";
             var info = await _client.GetGalleryInfoAsync(id);
             var reader = new ReaderWindow(_client, id, info) { Owner = this };
-            reader.SearchRequested += async query =>
-            {
-                await SearchFromTagAsync(query);
-            };
+            reader.SearchRequested += async query => await SearchFromTagAsync(query);
             reader.Show();
             StatusText.Text = $"#{id} 열림";
         }
-        catch (Exception ex) { MessageBox.Show(this, ex.Message, "갤러리 열기 실패", MessageBoxButton.OK, MessageBoxImage.Error); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "갤러리 열기 실패", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private async void OpenId_Click(object sender, RoutedEventArgs e)
@@ -501,16 +574,30 @@ public partial class MainWindow : Window
     {
         if (_page <= 0) return;
         _page--;
-        _cts?.Cancel(); _cts = new CancellationTokenSource();
-        try { await RenderPageAsync(_cts.Token); } catch (OperationCanceledException) { }
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        try { await RenderPageAsync(_cts.Token); }
+        catch (OperationCanceledException) { }
     }
 
     private async void Next_Click(object sender, RoutedEventArgs e)
     {
-        if ((_page + 1) * PerPage >= _results.Count) return;
+        if (!_currentPageHasNext) return;
+        var previousPage = _page;
         _page++;
-        _cts?.Cancel(); _cts = new CancellationTokenSource();
-        try { await RenderPageAsync(_cts.Token); } catch (OperationCanceledException) { }
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        try
+        {
+            await RenderPageAsync(_cts.Token);
+            if (GalleryPanel.Children.Count == 0)
+            {
+                _page = previousPage;
+                await RenderPageAsync(_cts.Token);
+                StatusText.Text = "마지막 페이지입니다.";
+            }
+        }
+        catch (OperationCanceledException) { }
     }
 
     private void SetBusy(string message)
