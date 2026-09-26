@@ -91,6 +91,10 @@ jobs:
           if (combinedIds.Count == 0) throw new Exception("Combined type/language filter returned zero results.");
           Console.WriteLine($"Combined type/language filter OK -> {combinedIds.Count:N0} results");
 
+          var suggestions = await client.GetTagSuggestionsAsync("female:big");
+          if (suggestions.Count == 0) throw new Exception("Tag autocomplete returned zero suggestions for female:big.");
+          Console.WriteLine($"Tag autocomplete OK: female:big -> {suggestions.Count} suggestions; first={suggestions[0]}");
+
           var urls = await client.GetReaderWebpImageUrlsAsync(info);
           if (urls.Count == 0) throw new Exception("Reader URL generation returned zero URLs.");
           Console.WriteLine($"First image URL: {urls[0]}");
