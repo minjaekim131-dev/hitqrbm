@@ -21,11 +21,35 @@ public partial class MainWindow : Window
     private string _searchBeforeFavorites = "";
     private const int PerPage = 20;
 
+    private static readonly (string Label, string Slug)[] LanguageOptions =
+    [
+        ("모든 언어", ""),
+        ("일본어", "japanese"),
+        ("영어", "english"),
+        ("한국어", "korean"),
+        ("중국어", "chinese"),
+        ("스페인어", "spanish"),
+        ("프랑스어", "french"),
+        ("독일어", "german"),
+        ("러시아어", "russian"),
+        ("포르투갈어", "portuguese"),
+        ("이탈리아어", "italian"),
+        ("태국어", "thai"),
+        ("베트남어", "vietnamese"),
+        ("인도네시아어", "indonesian"),
+        ("폴란드어", "polish"),
+        ("네덜란드어", "dutch"),
+        ("헝가리어", "hungarian"),
+        ("체코어", "czech")
+    ];
+
     public MainWindow()
     {
         InitializeComponent();
         SortBox.ItemsSource = new[] { "최신 추가순", "발행일순", "오늘 인기", "주간 인기", "월간 인기", "연간 인기", "랜덤" };
         SortBox.SelectedIndex = 0;
+        LanguageBox.ItemsSource = LanguageOptions.Select(x => x.Label).ToArray();
+        LanguageBox.SelectedIndex = 0;
         StartupFavoritesCheck.IsChecked = _stateStore.State.OpenFavoritesOnStartup;
         _initializing = false;
 
@@ -50,12 +74,51 @@ public partial class MainWindow : Window
         _ => SortMode.DateAdded
     };
 
+    private string CurrentLanguage => LanguageBox.SelectedIndex >= 0 && LanguageBox.SelectedIndex < LanguageOptions.Length
+        ? LanguageOptions[LanguageBox.SelectedIndex].Slug
+        : "";
+
     private async void Search_Click(object sender, RoutedEventArgs e) => await RunSearchAsync();
     private async void SearchBox_KeyDown(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) await RunSearchAsync(); }
 
     private async void SortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsLoaded) return;
+        if (_showingFavorites) await ShowFavoritesAsync();
+        else await RunSearchAsync();
+    }
+
+    private async void Filter_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_initializing || !IsLoaded) return;
+        await RefreshCurrentViewAsync();
+    }
+
+    private async void FilterBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) await RefreshCurrentViewAsync();
+    }
+
+    private async void ApplyFilters_Click(object sender, RoutedEventArgs e) => await RefreshCurrentViewAsync();
+
+    private async void ResetFilters_Click(object sender, RoutedEventArgs e)
+    {
+        _initializing = true;
+        DoujinshiCheck.IsChecked = true;
+        MangaCheck.IsChecked = true;
+        ArtistCgCheck.IsChecked = true;
+        GameCgCheck.IsChecked = true;
+        ImageSetCheck.IsChecked = true;
+        AnimeCheck.IsChecked = true;
+        LanguageBox.SelectedIndex = 0;
+        IncludeTagsBox.Text = "";
+        ExcludeTagsBox.Text = "";
+        _initializing = false;
+        await RefreshCurrentViewAsync();
+    }
+
+    private async Task RefreshCurrentViewAsync()
+    {
         if (_showingFavorites) await ShowFavoritesAsync();
         else await RunSearchAsync();
     }
@@ -92,18 +155,26 @@ public partial class MainWindow : Window
         FavoritesButton.Content = "← 일반 목록";
         FavoritesButton.ToolTip = "즐겨찾기 모드 종료";
         _page = 0;
-        _results = _stateStore.State.FavoriteGalleryIds.OrderByDescending(x => x).ToList();
+        var allFavoriteIds = _stateStore.State.FavoriteGalleryIds.OrderByDescending(x => x).ToList();
         SearchBox.Text = "";
         try
         {
-            SetBusy("즐겨찾기 불러오는 중…");
+            SetBusy("즐겨찾기 필터 적용 중…");
+            _results = await ApplyUiFiltersAsync(allFavoriteIds, ct);
             await RenderPageAsync(ct);
-            if (_results.Count == 0)
+            if (allFavoriteIds.Count == 0)
                 StatusText.Text = "즐겨찾기가 없습니다. 작품 카드의 ☆ 버튼을 눌러 추가하세요.";
+            else if (_results.Count == 0)
+                StatusText.Text = $"★ 즐겨찾기 {allFavoriteIds.Count:N0}개 중 현재 필터에 맞는 작품이 없습니다.";
             else
-                StatusText.Text = $"★ 즐겨찾기 {_results.Count:N0}개";
+                StatusText.Text = $"★ 즐겨찾기 {_results.Count:N0}개 표시 / 전체 {allFavoriteIds.Count:N0}개";
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            StatusText.Text = "필터 오류: " + ex.Message;
+            MessageBox.Show(this, ex.Message, "Pupil Desktop", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private async Task RunSearchAsync()
@@ -116,10 +187,11 @@ public partial class MainWindow : Window
         FavoritesButton.ToolTip = "즐겨찾기 보기";
         try
         {
-            SetBusy("검색 중…");
+            SetBusy("검색 및 필터 적용 중…");
             _page = 0;
             var query = NormalizeStructuredSearch(SearchBox.Text);
-            _results = await _client.SearchAsync(query, CurrentSort, ct);
+            var baseResults = await _client.SearchAsync(query, CurrentSort, ct);
+            _results = await ApplyUiFiltersAsync(baseResults, ct);
             await RenderPageAsync(ct);
         }
         catch (OperationCanceledException) { }
@@ -127,6 +199,71 @@ public partial class MainWindow : Window
         {
             StatusText.Text = "오류: " + ex.Message;
             MessageBox.Show(this, ex.Message, "Pupil Desktop", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async Task<List<int>> ApplyUiFiltersAsync(IEnumerable<int> source, CancellationToken ct)
+    {
+        var result = source.ToList();
+
+        var selectedTypes = GetSelectedTypes();
+        if (selectedTypes.Count == 0)
+            return [];
+
+        if (selectedTypes.Count < 6)
+        {
+            var allowedTypes = new HashSet<int>();
+            foreach (var type in selectedTypes)
+            {
+                foreach (var id in await _client.SearchAsync($"type:{type}", CurrentSort, ct))
+                    allowedTypes.Add(id);
+            }
+            result = result.Where(allowedTypes.Contains).ToList();
+        }
+
+        if (!string.IsNullOrWhiteSpace(CurrentLanguage))
+        {
+            var allowedLanguage = (await _client.SearchAsync($"language:{CurrentLanguage}", CurrentSort, ct)).ToHashSet();
+            result = result.Where(allowedLanguage.Contains).ToList();
+        }
+
+        foreach (var include in ParseFilterTerms(IncludeTagsBox.Text))
+        {
+            var allowed = (await _client.SearchAsync(include, CurrentSort, ct)).ToHashSet();
+            result = result.Where(allowed.Contains).ToList();
+        }
+
+        foreach (var exclude in ParseFilterTerms(ExcludeTagsBox.Text))
+        {
+            var blocked = (await _client.SearchAsync(exclude, CurrentSort, ct)).ToHashSet();
+            result = result.Where(id => !blocked.Contains(id)).ToList();
+        }
+
+        return result;
+    }
+
+    private List<string> GetSelectedTypes()
+    {
+        var selected = new List<string>();
+        if (DoujinshiCheck.IsChecked == true) selected.Add("doujinshi");
+        if (MangaCheck.IsChecked == true) selected.Add("manga");
+        if (ArtistCgCheck.IsChecked == true) selected.Add("artistcg");
+        if (GameCgCheck.IsChecked == true) selected.Add("gamecg");
+        if (ImageSetCheck.IsChecked == true) selected.Add("imageset");
+        if (AnimeCheck.IsChecked == true) selected.Add("anime");
+        return selected;
+    }
+
+    private static IEnumerable<string> ParseFilterTerms(string text)
+    {
+        foreach (var raw in text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var term = raw.Trim();
+            if (string.IsNullOrWhiteSpace(term)) continue;
+            if (!term.Contains(':')) term = "tag:" + term;
+            term = NormalizeStructuredSearch(term);
+            if (term.StartsWith('-')) term = term[1..];
+            if (!string.IsNullOrWhiteSpace(term)) yield return term;
         }
     }
 
@@ -149,7 +286,7 @@ public partial class MainWindow : Window
         if (idx <= 0) return text;
 
         var prefix = body[..idx].Trim().ToLowerInvariant();
-        var known = prefix is "male" or "female" or "language" or "artist" or "group" or "parody" or "series" or "character" or "tag";
+        var known = prefix is "male" or "female" or "language" or "artist" or "group" or "parody" or "series" or "character" or "tag" or "type";
         if (!known) return text;
 
         if (prefix == "series") prefix = "parody";
@@ -167,8 +304,8 @@ public partial class MainWindow : Window
         var ids = _results.Skip(start).Take(PerPage).ToArray();
         PageText.Text = _results.Count == 0 ? "0 / 0" : $"{_page + 1} / {Math.Max(1, (int)Math.Ceiling(_results.Count / (double)PerPage))}";
         StatusText.Text = _showingFavorites
-            ? $"★ 즐겨찾기 {_results.Count:N0}개 · {ids.Length}개 불러오는 중…"
-            : $"{_results.Count:N0}개 결과 · {ids.Length}개 불러오는 중…";
+            ? $"★ 즐겨찾기 · 필터 결과 {_results.Count:N0}개 · {ids.Length}개 불러오는 중…"
+            : $"필터 결과 {_results.Count:N0}개 · {ids.Length}개 불러오는 중…";
 
         using var gate = new SemaphoreSlim(5);
         var tasks = ids.Select(async (id, index) =>
@@ -203,8 +340,8 @@ public partial class MainWindow : Window
         }
 
         StatusText.Text = _showingFavorites
-            ? $"★ 즐겨찾기 {_results.Count:N0}개"
-            : $"{_results.Count:N0}개 결과";
+            ? $"★ 즐겨찾기 · 필터 결과 {_results.Count:N0}개"
+            : $"필터 결과 {_results.Count:N0}개";
     }
 
     private UIElement CreateCard(GalleryCard card, BitmapImage? bitmap)
