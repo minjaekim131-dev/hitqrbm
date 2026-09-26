@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -6,6 +7,9 @@ namespace PupilDesktop.Core;
 
 public sealed partial class HitomiClient
 {
+    private const string SuggestionDomain = "ltn.hitomi.la";
+    private string? _suggestionTagIndexVersion;
+
     public async Task<List<string>> GetTagSuggestionsAsync(string input, CancellationToken ct = default)
     {
         var text = input.Trim().ToLowerInvariant().Replace('_', ' ');
@@ -40,7 +44,7 @@ public sealed partial class HitomiClient
             catch (OperationCanceledException) { throw; }
             catch when (!explicitField)
             {
-                // One suggestion index can fail independently; keep suggestions from the others.
+                // Keep suggestions from the other indexes when one category has no match.
             }
         }
 
@@ -52,9 +56,8 @@ public sealed partial class HitomiClient
 
     private async Task<List<string>> GetTagSuggestionsForFieldAsync(string field, string term, bool throwIfMissing, CancellationToken ct)
     {
-        var firstNode = await GetNodeAtAddressAsync(field, 0, ct);
         var key = SHA256.HashData(Encoding.UTF8.GetBytes(term))[..4];
-        var data = await BSearchAsync(field, key, firstNode, ct);
+        var data = await FindSuggestionDataAsync(field, key, ct);
         if (data is null)
         {
             if (throwIfMissing)
@@ -62,10 +65,50 @@ public sealed partial class HitomiClient
             return [];
         }
 
-        var version = await GetTagIndexVersionAsync(ct);
-        var url = $"https://{Domain}/tagindex/{field}.{version}.data";
-        var bytes = await GetRangeAsync(url, data.Value.offset, data.Value.offset + data.Value.length - 1, ct);
+        var version = await GetSuggestionTagIndexVersionAsync(ct);
+        var url = $"https://{SuggestionDomain}/tagindex/{field}.{version}.data";
+        var bytes = await GetSuggestionRangeAsync(url, data.Value.offset, data.Value.offset + data.Value.length, ct);
         return DecodeTagSuggestionData(bytes, field);
+    }
+
+    private async Task<(long offset, int length)?> FindSuggestionDataAsync(string field, byte[] key, CancellationToken ct)
+    {
+        var node = await GetSuggestionNodeAsync(field, 0, ct);
+        while (true)
+        {
+            if (node.Keys.Count == 0) return null;
+            var (there, where) = LocateKey(key, node.Keys);
+            if (there) return node.Datas[where];
+            if (node.SubNodeAddresses.All(x => x == 0)) return null;
+            if (where >= node.SubNodeAddresses.Count || node.SubNodeAddresses[where] == 0) return null;
+            node = await GetSuggestionNodeAsync(field, node.SubNodeAddresses[where], ct);
+        }
+    }
+
+    private async Task<Node> GetSuggestionNodeAsync(string field, long address, CancellationToken ct)
+    {
+        var version = await GetSuggestionTagIndexVersionAsync(ct);
+        var url = $"https://{SuggestionDomain}/tagindex/{field}.{version}.index";
+        var bytes = await GetSuggestionRangeAsync(url, address, address + MaxNodeSize - 1, ct);
+        return DecodeNode(bytes);
+    }
+
+    private async Task<string> GetSuggestionTagIndexVersionAsync(CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(_suggestionTagIndexVersion)) return _suggestionTagIndexVersion;
+        using var res = await _http.GetAsync($"https://{SuggestionDomain}/tagindex/version?_={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", ct);
+        res.EnsureSuccessStatusCode();
+        _suggestionTagIndexVersion = (await res.Content.ReadAsStringAsync(ct)).Trim();
+        return _suggestionTagIndexVersion;
+    }
+
+    private async Task<byte[]> GetSuggestionRangeAsync(string url, long first, long last, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Range = new RangeHeaderValue(first, last);
+        using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        res.EnsureSuccessStatusCode();
+        return await res.Content.ReadAsByteArrayAsync(ct);
     }
 
     private static List<string> DecodeTagSuggestionData(byte[] data, string fallbackField)
