@@ -13,6 +13,7 @@ public sealed partial class HitomiClient
 
         string term = text;
         string[] fields = ["tag", "female", "male"];
+        var explicitField = false;
 
         var idx = text.IndexOf(':');
         if (idx > 0)
@@ -20,7 +21,10 @@ public sealed partial class HitomiClient
             var requestedField = text[..idx].Trim();
             term = text[(idx + 1)..].Trim();
             if (requestedField is "tag" or "female" or "male")
+            {
                 fields = [requestedField];
+                explicitField = true;
+            }
         }
 
         if (string.IsNullOrWhiteSpace(term)) return [];
@@ -30,11 +34,11 @@ public sealed partial class HitomiClient
         {
             try
             {
-                foreach (var item in await GetTagSuggestionsForFieldAsync(field, term, ct))
+                foreach (var item in await GetTagSuggestionsForFieldAsync(field, term, explicitField, ct))
                     output.Add(item);
             }
             catch (OperationCanceledException) { throw; }
-            catch
+            catch when (!explicitField)
             {
                 // One suggestion index can fail independently; keep suggestions from the others.
             }
@@ -46,12 +50,17 @@ public sealed partial class HitomiClient
             .ToList();
     }
 
-    private async Task<List<string>> GetTagSuggestionsForFieldAsync(string field, string term, CancellationToken ct)
+    private async Task<List<string>> GetTagSuggestionsForFieldAsync(string field, string term, bool throwIfMissing, CancellationToken ct)
     {
         var firstNode = await GetNodeAtAddressAsync(field, 0, ct);
         var key = SHA256.HashData(Encoding.UTF8.GetBytes(term))[..4];
         var data = await BSearchAsync(field, key, firstNode, ct);
-        if (data is null) return [];
+        if (data is null)
+        {
+            if (throwIfMissing)
+                throw new InvalidDataException($"No tag suggestion index entry for {field}:{term}");
+            return [];
+        }
 
         var version = await GetTagIndexVersionAsync(ct);
         var url = $"https://{Domain}/tagindex/{field}.{version}.data";
@@ -61,7 +70,7 @@ public sealed partial class HitomiClient
 
     private static List<string> DecodeTagSuggestionData(byte[] data, string fallbackField)
     {
-        if (data.Length < 4) return [];
+        if (data.Length < 4) throw new InvalidDataException("Tag suggestion data is too short.");
         var offset = 0;
 
         int ReadInt()
@@ -80,31 +89,23 @@ public sealed partial class HitomiClient
             return value;
         }
 
-        try
+        var count = ReadInt();
+        if (count < 0 || count > 500)
+            throw new InvalidDataException($"Invalid tag suggestion count: {count}");
+
+        var result = new List<string>(count);
+        for (var i = 0; i < count; i++)
         {
-            var count = ReadInt();
-            if (count < 0 || count > 500) return [];
+            var headerLength = ReadInt();
+            var header = ReadString(headerLength).Trim().ToLowerInvariant();
+            var tagLength = ReadInt();
+            var tag = ReadString(tagLength).Trim();
+            _ = ReadInt();
 
-            var result = new List<string>(count);
-            for (var i = 0; i < count; i++)
-            {
-                var headerLength = ReadInt();
-                var header = ReadString(headerLength).Trim().ToLowerInvariant();
-                var tagLength = ReadInt();
-                var tag = ReadString(tagLength).Trim();
-
-                // Hitomi stores an additional 32-bit weight/count after each suggestion.
-                _ = ReadInt();
-
-                if (string.IsNullOrWhiteSpace(tag)) continue;
-                var prefix = header is "tag" or "female" or "male" ? header : fallbackField;
-                result.Add($"{prefix}:{tag.Replace(' ', '_')}");
-            }
-            return result;
+            if (string.IsNullOrWhiteSpace(tag)) continue;
+            var prefix = header is "tag" or "female" or "male" ? header : fallbackField;
+            result.Add($"{prefix}:{tag.Replace(' ', '_')}");
         }
-        catch
-        {
-            return [];
-        }
+        return result;
     }
 }
