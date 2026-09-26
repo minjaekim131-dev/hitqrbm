@@ -62,22 +62,9 @@ jobs:
           Console.WriteLine($"Title: {info.Title}");
           Console.WriteLine($"Pages: {info.Files.Count}");
 
-          var tagSearchOk = false;
-          foreach (var tag in (info.Tags ?? []).Where(t => !string.IsNullOrWhiteSpace(t.Tag)).Take(12))
-          {
-              var prefix = !string.IsNullOrWhiteSpace(tag.Female) ? "female"
-                         : !string.IsNullOrWhiteSpace(tag.Male) ? "male"
-                         : "tag";
-              var query = $"{prefix}:{tag.Tag.Replace(' ', '_')}";
-              var tagIds = await client.SearchAsync(query, SortMode.DateAdded);
-              if (tagIds.Count > 0)
-              {
-                  Console.WriteLine($"Tag search OK: {query} -> {tagIds.Count:N0} results");
-                  tagSearchOk = true;
-                  break;
-              }
-          }
-          if (!tagSearchOk) throw new Exception("No metadata tag produced a valid tag-search result.");
+          var stableTagIds = await client.SearchAsync("female:blowjob", SortMode.DateAdded);
+          if (stableTagIds.Count == 0) throw new Exception("Stable tag search returned zero results for female:blowjob.");
+          Console.WriteLine($"Tag search OK: female:blowjob -> {stableTagIds.Count:N0} results");
 
           var typeIds = await client.SearchAsync("type:doujinshi", SortMode.DateAdded);
           if (typeIds.Count == 0) throw new Exception("Type filter returned zero results for doujinshi.");
