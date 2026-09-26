@@ -79,6 +79,18 @@ jobs:
           }
           if (!tagSearchOk) throw new Exception("No metadata tag produced a valid tag-search result.");
 
+          var typeIds = await client.SearchAsync("type:doujinshi", SortMode.DateAdded);
+          if (typeIds.Count == 0) throw new Exception("Type filter returned zero results for doujinshi.");
+          Console.WriteLine($"Type filter OK: doujinshi -> {typeIds.Count:N0} results");
+
+          var languageIds = await client.SearchAsync("language:japanese", SortMode.DateAdded);
+          if (languageIds.Count == 0) throw new Exception("Language filter returned zero results for japanese.");
+          Console.WriteLine($"Language filter OK: japanese -> {languageIds.Count:N0} results");
+
+          var combinedIds = await client.SearchAsync("type:doujinshi language:japanese", SortMode.DateAdded);
+          if (combinedIds.Count == 0) throw new Exception("Combined type/language filter returned zero results.");
+          Console.WriteLine($"Combined type/language filter OK -> {combinedIds.Count:N0} results");
+
           var urls = await client.GetReaderWebpImageUrlsAsync(info);
           if (urls.Count == 0) throw new Exception("Reader URL generation returned zero URLs.");
           Console.WriteLine($"First image URL: {urls[0]}");
