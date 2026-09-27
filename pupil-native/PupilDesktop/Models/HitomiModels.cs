@@ -15,7 +15,9 @@ public sealed class TagInfo
 }
 public sealed class LanguageInfo
 {
-    public string Galleryid { get; set; } = "";
+    // Hitomi metadata currently mixes numeric and string values for galleryid.
+    // The desktop app does not need to interpret this field, so keep it flexible.
+    public object? Galleryid { get; set; }
     public string Url { get; set; } = "";
     public string Language_localname { get; set; } = "";
     public string Name { get; set; } = "";
