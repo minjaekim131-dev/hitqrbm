@@ -62,11 +62,35 @@ public sealed partial class HitomiClient : IDisposable
 
     public async Task<GalleryCard> GetGalleryCardAsync(int galleryId, CancellationToken ct = default)
     {
-        var info = await GetGalleryInfoAsync(galleryId, ct);
-        if (info.Files.Count == 0) throw new InvalidDataException("Gallery has no files.");
-        var cover = await UrlFromUrlFromHashAsync(info.Files[0], "webpbigtn", "webp", "tn", ct);
-        var fallback = await UrlFromUrlFromHashAsync(info.Files[0], "images", null, null, ct);
-        return new GalleryCard(galleryId, info, cover, fallback);
+        var attempt = 0;
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var info = await GetGalleryInfoAsync(galleryId, ct);
+                if (info.Files.Count == 0) throw new InvalidDataException("Gallery has no files yet.");
+                var cover = await UrlFromUrlFromHashAsync(info.Files[0], "webpbigtn", "webp", "tn", ct);
+                var fallback = await UrlFromUrlFromHashAsync(info.Files[0], "images", null, null, ct);
+                return new GalleryCard(galleryId, info, cover, fallback);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                attempt++;
+                var delay = attempt switch
+                {
+                    <= 2 => TimeSpan.FromSeconds(1),
+                    <= 4 => TimeSpan.FromSeconds(2),
+                    <= 6 => TimeSpan.FromSeconds(4),
+                    _ => TimeSpan.FromSeconds(8)
+                };
+                await Task.Delay(delay, ct);
+            }
+        }
     }
 
     public async Task<List<string>> GetReaderImageUrlsAsync(GalleryInfo info, CancellationToken ct = default)
