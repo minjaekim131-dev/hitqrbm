@@ -368,7 +368,7 @@ public partial class MainWindow : Window
         return (null, null, lastError);
     }
 
-    private async Task RenderPageAsync(CancellationToken ct)
+    private Task RenderPageAsync(CancellationToken ct)
     {
         GalleryPanel.Children.Clear();
         if (_results.Count == 0)
@@ -376,42 +376,14 @@ public partial class MainWindow : Window
             PageText.Text = "0 / 0";
             StatusText.Text = _showingFavorites ? "★ 즐겨찾기 · 필터 결과 0개" : "필터 결과 0개";
             _currentPageHasNext = false;
-            return;
+            return Task.CompletedTask;
         }
 
         if (!_pageStartIndices.TryGetValue(_page, out var cursor))
             cursor = Math.Min(_page * PerPage, _results.Count);
 
-        var display = new List<(GalleryCard Card, BitmapImage? Bitmap)>();
-        var skipped = 0;
-        StatusText.Text = _showingFavorites
-            ? $"★ 즐겨찾기 · {_page + 1}페이지 불러오는 중…"
-            : $"{_page + 1}페이지 불러오는 중…";
-
-        while (display.Count < PerPage && cursor < _results.Count)
-        {
-            ct.ThrowIfCancellationRequested();
-            var need = PerPage - display.Count;
-            var batchIds = _results.Skip(cursor).Take(need).ToArray();
-            cursor += batchIds.Length;
-
-            var loaded = await Task.WhenAll(batchIds.Select(async id =>
-            {
-                var item = await LoadCardForDisplayAsync(id, ct);
-                return (Id: id, item.Card, item.Bitmap, item.Error);
-            }));
-
-            foreach (var item in loaded)
-            {
-                if (item.Card is not null)
-                    display.Add((item.Card, item.Bitmap));
-                else
-                    skipped++;
-            }
-        }
-
-        foreach (var item in display)
-            GalleryPanel.Children.Add(CreateCard(item.Card, item.Bitmap));
+        var pageIds = _results.Skip(cursor).Take(PerPage).ToArray();
+        cursor += pageIds.Length;
 
         _currentPageHasNext = cursor < _results.Count;
         if (_currentPageHasNext)
@@ -419,11 +391,82 @@ public partial class MainWindow : Window
         else
             _pageStartIndices.Remove(_page + 1);
 
-        PageText.Text = $"{_page + 1}페이지 · {display.Count}개";
-        var skippedText = skipped > 0 ? $" · 로딩 실패 {skipped}개 건너뜀" : "";
+        PageText.Text = $"{_page + 1}페이지 · {pageIds.Length}개";
+        var loadedCount = 0;
         StatusText.Text = _showingFavorites
-            ? $"★ 즐겨찾기 · 필터 결과 {_results.Count:N0}개 · {display.Count}개 표시{skippedText}"
-            : $"필터 결과 {_results.Count:N0}개 · {display.Count}개 표시{skippedText}";
+            ? $"★ 즐겨찾기 · {pageIds.Length}개 중 0개 로드 · 나머지 자동 재시도 중"
+            : $"{pageIds.Length}개 중 0개 로드 · 나머지 자동 재시도 중";
+
+        foreach (var id in pageIds)
+        {
+            var placeholder = CreateLoadingCard(id);
+            GalleryPanel.Children.Add(placeholder);
+            _ = LoadCardIntoSlotAsync(id, placeholder, pageIds.Length, () => ++loadedCount, ct);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadCardIntoSlotAsync(int id, UIElement placeholder, int total, Func<int> incrementLoaded, CancellationToken ct)
+    {
+        try
+        {
+            var item = await LoadCardForDisplayAsync(id, ct);
+            ct.ThrowIfCancellationRequested();
+            if (item.Card is null) return;
+
+            var index = GalleryPanel.Children.IndexOf(placeholder);
+            if (index < 0) return;
+
+            GalleryPanel.Children[index] = CreateCard(item.Card, item.Bitmap);
+            var loaded = incrementLoaded();
+            StatusText.Text = _showingFavorites
+                ? $"★ 즐겨찾기 · 필터 결과 {_results.Count:N0}개 · {loaded}/{total}개 로드{(loaded < total ? " · 나머지 자동 재시도 중" : "")}"
+                : $"필터 결과 {_results.Count:N0}개 · {loaded}/{total}개 로드{(loaded < total ? " · 나머지 자동 재시도 중" : "")}";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            if (ct.IsCancellationRequested) return;
+            if (placeholder is Border border && border.Child is StackPanel stack && stack.Children.Count > 0 && stack.Children[0] is TextBlock text)
+                text.Text = $"#{id} · 재시도 중…\n{ex.Message}";
+        }
+    }
+
+    private UIElement CreateLoadingCard(int id)
+    {
+        var stack = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"#{id} · 불러오는 중…\n응답이 늦으면 이 자리만 자동 재시도합니다.",
+            TextAlignment = TextAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Brushes.Gray,
+            Margin = new Thickness(8)
+        });
+        stack.Children.Add(new ProgressBar
+        {
+            IsIndeterminate = true,
+            Width = 150,
+            Height = 6,
+            Margin = new Thickness(8)
+        });
+
+        return new Border
+        {
+            Width = 220,
+            MinHeight = 455,
+            Margin = new Thickness(4),
+            Padding = new Thickness(6),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(32, 0, 0, 0)),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Child = stack
+        };
     }
 
     private UIElement CreateCard(GalleryCard card, BitmapImage? bitmap)
