@@ -20,7 +20,7 @@ jobs:
         shell: pwsh
         run: |
           $path = 'pupil-native/PupilDesktop/Windows/MainWindow.xaml.cs'
-          $text = Get-Content -Raw -Encoding UTF8 $path
+          $text = [System.IO.File]::ReadAllText($path)
           $old = '            GalleryPanel.Children[index] = CreateCard(item.Card, item.Bitmap);'
           $new = @'
             var replacement = CreateCard(item.Card, item.Bitmap);
@@ -29,7 +29,7 @@ jobs:
           '@
           if (-not $text.Contains($old)) { throw 'Target replacement line not found.' }
           $text = $text.Replace($old, $new.TrimEnd("`r", "`n"))
-          Set-Content -Encoding UTF8 -NoNewline $path $text
+          [System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))
       - name: Commit hotfix
         shell: pwsh
         run: |
