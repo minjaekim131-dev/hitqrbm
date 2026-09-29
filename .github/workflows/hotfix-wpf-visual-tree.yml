@@ -26,7 +26,7 @@ jobs:
             var replacement = CreateCard(item.Card, item.Bitmap);
             GalleryPanel.Children.RemoveAt(index);
             GalleryPanel.Children.Insert(index, replacement);
-'@
+          '@
           if (-not $text.Contains($old)) { throw 'Target replacement line not found.' }
           $text = $text.Replace($old, $new.TrimEnd("`r", "`n"))
           Set-Content -Encoding UTF8 -NoNewline $path $text
