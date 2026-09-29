@@ -418,7 +418,9 @@ public partial class MainWindow : Window
             var index = GalleryPanel.Children.IndexOf(placeholder);
             if (index < 0) return;
 
-            GalleryPanel.Children[index] = CreateCard(item.Card, item.Bitmap);
+  var replacement = CreateCard(item.Card, item.Bitmap);
+  GalleryPanel.Children.RemoveAt(index);
+  GalleryPanel.Children.Insert(index, replacement);
             var loaded = incrementLoaded();
             StatusText.Text = _showingFavorites
                 ? $"★ 즐겨찾기 · 필터 결과 {_results.Count:N0}개 · {loaded}/{total}개 로드{(loaded < total ? " · 나머지 자동 재시도 중" : "")}"
