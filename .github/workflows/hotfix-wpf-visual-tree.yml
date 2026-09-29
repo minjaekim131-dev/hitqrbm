@@ -1,0 +1,40 @@
+name: Hotfix WPF Visual Tree
+
+on:
+  push:
+    branches: [pupil-windows-test]
+    paths:
+      - '.github/workflows/hotfix-wpf-visual-tree.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pupil-windows-test
+      - name: Patch unsafe UIElementCollection replacement
+        shell: pwsh
+        run: |
+          $path = 'pupil-native/PupilDesktop/Windows/MainWindow.xaml.cs'
+          $text = Get-Content -Raw -Encoding UTF8 $path
+          $old = '            GalleryPanel.Children[index] = CreateCard(item.Card, item.Bitmap);'
+          $new = @'
+            var replacement = CreateCard(item.Card, item.Bitmap);
+            GalleryPanel.Children.RemoveAt(index);
+            GalleryPanel.Children.Insert(index, replacement);
+'@
+          if (-not $text.Contains($old)) { throw 'Target replacement line not found.' }
+          $text = $text.Replace($old, $new.TrimEnd("`r", "`n"))
+          Set-Content -Encoding UTF8 -NoNewline $path $text
+      - name: Commit hotfix
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add pupil-native/PupilDesktop/Windows/MainWindow.xaml.cs
+          git commit -m 'Fix WPF gallery card slot replacement'
+          git push origin HEAD:pupil-windows-test
